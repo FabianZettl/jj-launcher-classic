@@ -144,6 +144,7 @@ public class MainActivity extends Activity {
     private AudioManager audioManager;
     private File rootFolder = new File("/storage/sdcard0/Music");
     private File currentFolder = rootFolder;
+    private List<File> originalPlaylist = new ArrayList<File>();
     private List<File> currentPlaylist = new ArrayList<File>();
     private int currentIndex = 0;
     private boolean isPausedByHand = true;
@@ -302,9 +303,33 @@ public class MainActivity extends Activity {
                 isMediaScanning = false;
                 Toast.makeText(context, "Media Scan Complete! Library Updated.", Toast.LENGTH_SHORT).show();
 
-                // 만약 사용자가 현재 라이브러리 메인 화면에 있다면 목록을 살짝 새로고침해 줍니다.
-                if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_ROOT) {
-                    buildFileBrowserUI();
+                // 🚀 시스템 스캔이 끝났을 때 우리 자체 라이브러리도 다시 갱신해 줍니다!
+                if (!isCustomScanning) {
+                    isCustomScanning = true;
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            customLibrary.clear();
+                            buildCustomLibrary(rootFolder);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    isCustomScanning = false;
+                                    if (currentScreenState == STATE_BROWSER) {
+                                        if (currentBrowserMode == BROWSER_ROOT) {
+                                            buildFileBrowserUI();
+                                        } else if (currentBrowserMode == BROWSER_ARTISTS) {
+                                            buildVirtualCategories("ARTIST");
+                                        } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                                            buildVirtualCategories("ALBUM");
+                                        } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
+                                            buildVirtualSongs();
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }).start();
                 }
             }
         }
@@ -402,6 +427,18 @@ public class MainActivity extends Activity {
                         @Override
                         public void run() {
                             isCustomScanning = false;
+                            // 스캔이 끝났을 때 사용자가 이미 브라우저 화면에 진입해 있다면 화면을 새로고침해 줍니다.
+                            if (currentScreenState == STATE_BROWSER) {
+                                if (currentBrowserMode == BROWSER_ROOT) {
+                                    buildFileBrowserUI();
+                                } else if (currentBrowserMode == BROWSER_ARTISTS) {
+                                    buildVirtualCategories("ARTIST");
+                                } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                                    buildVirtualCategories("ALBUM");
+                                } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
+                                    buildVirtualSongs();
+                                }
+                            }
                         }
                     });
                 }
@@ -561,6 +598,37 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 currentBrowserMode = BROWSER_ROOT; // 💡 뮤직 진입 시 라이브러리 최상단으로!
+
+                // 🚀 재부팅 직후 SD 카드가 늦게 인식되어 초기 스캔이 실패했을 경우를 대비해,
+                // 뮤직 메뉴 진입 시 라이브러리가 비어있다면 다시 한번 스캔을 자동으로 돌립니다.
+                if (customLibrary.isEmpty() && !isCustomScanning) {
+                    isCustomScanning = true;
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            customLibrary.clear();
+                            buildCustomLibrary(rootFolder);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    isCustomScanning = false;
+                                    if (currentScreenState == STATE_BROWSER) {
+                                        if (currentBrowserMode == BROWSER_ROOT) {
+                                            buildFileBrowserUI();
+                                        } else if (currentBrowserMode == BROWSER_ARTISTS) {
+                                            buildVirtualCategories("ARTIST");
+                                        } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                                            buildVirtualCategories("ALBUM");
+                                        } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
+                                            buildVirtualSongs();
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }).start();
+                }
+
                 changeScreen(STATE_BROWSER);
             }
         });
@@ -817,7 +885,15 @@ public class MainActivity extends Activity {
             if (c == null)
                 btnNowPlaying.requestFocus();
         } else if (state == STATE_BROWSER) {
-            buildFileBrowserUI();
+            if (currentBrowserMode == BROWSER_ROOT || currentBrowserMode == BROWSER_FOLDER) {
+                buildFileBrowserUI();
+            } else if (currentBrowserMode == BROWSER_ARTISTS) {
+                buildVirtualCategories("ARTIST");
+            } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                buildVirtualCategories("ALBUM");
+            } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
+                buildVirtualSongs();
+            }
         } else if (state == STATE_SETTINGS) {
             buildSettingsUI();
         } else if (state == STATE_BLUETOOTH) {
@@ -1390,6 +1466,19 @@ public class MainActivity extends Activity {
                     prefs.edit().putBoolean("shuffle", isShuffleMode).apply();
                 } catch (Exception e) {
                 }
+
+                if (!currentPlaylist.isEmpty() && !originalPlaylist.isEmpty()) {
+                    File currentSong = currentPlaylist.get(currentIndex);
+                    if (isShuffleMode) {
+                        java.util.Collections.shuffle(currentPlaylist);
+                    } else {
+                        currentPlaylist.clear();
+                        currentPlaylist.addAll(originalPlaylist);
+                    }
+                    currentIndex = currentPlaylist.indexOf(currentSong);
+                    if (currentIndex == -1)
+                        currentIndex = 0;
+                }
             }
         });
         containerSettingsItems.addView(btnShuffle);
@@ -1543,7 +1632,39 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnPowerOff);
+        // 🚀 [추가] 락박스(Rockbox) OS로 재부팅하는 버튼
+        LinearLayout btnRockbox = createSettingRow("Reboot to Rockbox", "〉 ");
+        btnRockbox.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Reboot to Rockbox")
+                        .setMessage("Do you want to reboot into Rockbox OS?")
+                        .setPositiveButton("Reboot", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    Toast.makeText(MainActivity.this, "Rebooting to Rockbox...", Toast.LENGTH_SHORT)
+                                            .show();
 
+                                    // 💡 락박스 진입 명령어 실행 (기기 파티션 구조에 따라 다를 수 있습니다)
+                                    // 기본적으로 대부분의 듀얼 부팅 기기는 아래 명령어 중 하나를 사용합니다.
+                                    Runtime.getRuntime().exec(new String[] { "su", "-c", "reboot alternate" });
+
+                                    // 만약 위 명령어로 일반 안드로이드 재부팅이 된다면, 아래 명령어의 주석(//)을 해제하고 시도해 보세요.
+                                    // Runtime.getRuntime().exec(new String[]{"su", "-c", "reboot recovery"});
+
+                                } catch (Exception e) {
+                                    Toast.makeText(MainActivity.this, "Failed: Root access required.",
+                                            Toast.LENGTH_SHORT).show();
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            }
+        });
+        containerSettingsItems.addView(btnRockbox);
         LinearLayout btnServerMenu = createSettingRow("Web Server (PC Upload)", "〉 ");
         btnServerMenu.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1777,8 +1898,16 @@ public class MainActivity extends Activity {
                                 Toast.makeText(MainActivity.this,
                                         "Scan Complete! " + customLibrary.size() + " songs found.", Toast.LENGTH_SHORT)
                                         .show();
-                                if (currentScreenState == STATE_BROWSER && currentBrowserMode == BROWSER_ROOT) {
-                                    buildFileBrowserUI();
+                                if (currentScreenState == STATE_BROWSER) {
+                                    if (currentBrowserMode == BROWSER_ROOT) {
+                                        buildFileBrowserUI();
+                                    } else if (currentBrowserMode == BROWSER_ARTISTS) {
+                                        buildVirtualCategories("ARTIST");
+                                    } else if (currentBrowserMode == BROWSER_ALBUMS) {
+                                        buildVirtualCategories("ALBUM");
+                                    } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
+                                        buildVirtualSongs();
+                                    }
                                 }
                             }
                         });
@@ -1795,15 +1924,6 @@ public class MainActivity extends Activity {
     private void buildVirtualCategories(final String type) {
         containerBrowserItems.removeAllViews();
         tvBrowserPath.setText("Library: " + type + "s");
-
-        Button btnBack = createListButton("〈 BACK TO LIBRARY");
-        btnBack.setTextColor(0xFF888888);
-        btnBack.setOnClickListener(v -> {
-            clickFeedback();
-            currentBrowserMode = BROWSER_ROOT;
-            buildFileBrowserUI();
-        });
-        containerBrowserItems.addView(btnBack);
 
         List<String> categories = new ArrayList<>();
         for (SongItem song : customLibrary) {
@@ -1824,27 +1944,14 @@ public class MainActivity extends Activity {
             });
             containerBrowserItems.addView(btn);
         }
-        if (containerBrowserItems.getChildCount() > 1)
-            containerBrowserItems.getChildAt(1).requestFocus();
+        if (containerBrowserItems.getChildCount() > 0)
+            containerBrowserItems.getChildAt(0).requestFocus();
     }
 
     // 💡 4. 자체 DB에서 선택한 곡들만 뽑아내는 함수
     private void buildVirtualSongs() {
         containerBrowserItems.removeAllViews();
         tvBrowserPath.setText("Library: " + (virtualQueryType.equals("ALL") ? "All Songs" : virtualQueryValue));
-
-        Button btnBack = createListButton("〈 BACK");
-        btnBack.setTextColor(0xFF888888);
-        btnBack.setOnClickListener(v -> {
-            clickFeedback();
-            currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
-                    : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
-            if (currentBrowserMode == BROWSER_ROOT)
-                buildFileBrowserUI();
-            else
-                buildVirtualCategories(virtualQueryType);
-        });
-        containerBrowserItems.addView(btnBack);
 
         virtualSongList.clear();
         for (SongItem song : customLibrary) {
@@ -1862,8 +1969,8 @@ public class MainActivity extends Activity {
                 containerBrowserItems.addView(btn);
             }
         }
-        if (containerBrowserItems.getChildCount() > 1)
-            containerBrowserItems.getChildAt(1).requestFocus();
+        if (containerBrowserItems.getChildCount() > 0)
+            containerBrowserItems.getChildAt(0).requestFocus();
     }
 
     private void buildFolderBrowserUI() {
@@ -1984,9 +2091,25 @@ public class MainActivity extends Activity {
 
     // 💡 1. 가상의 리스트(아티스트, 앨범 등)를 통째로 플레이어에 밀어 넣는 핵심 함수
     private void playTrackList(List<File> playlist, int startIndex) {
+        originalPlaylist.clear();
+        originalPlaylist.addAll(playlist);
         currentPlaylist.clear();
         currentPlaylist.addAll(playlist);
-        currentIndex = startIndex;
+
+        if (!playlist.isEmpty()) {
+            File currentSong = originalPlaylist.get(startIndex);
+            if (isShuffleMode) {
+                java.util.Collections.shuffle(currentPlaylist);
+                currentIndex = currentPlaylist.indexOf(currentSong);
+                if (currentIndex == -1)
+                    currentIndex = 0;
+            } else {
+                currentIndex = startIndex;
+            }
+        } else {
+            currentIndex = 0;
+        }
+
         prepareMusicTrack(currentIndex);
         try {
             if (mediaPlayer != null) {
@@ -2156,9 +2279,7 @@ public class MainActivity extends Activity {
                         } else if (repeatMode == 2) { // Repeat All
                             nextTrack();
                         } else { // Repeat Off
-                            if (isShuffleMode) {
-                                nextTrack();
-                            } else if (currentIndex < currentPlaylist.size() - 1) {
+                            if (currentIndex < currentPlaylist.size() - 1) {
                                 nextTrack();
                             } else {
                                 // Reached the end, stop playback
@@ -2247,15 +2368,7 @@ public class MainActivity extends Activity {
     private void nextTrack() {
         if (currentPlaylist.isEmpty())
             return;
-        if (isShuffleMode && currentPlaylist.size() > 1) {
-            int nextIndex = currentIndex;
-            while (nextIndex == currentIndex) {
-                nextIndex = random.nextInt(currentPlaylist.size());
-            }
-            currentIndex = nextIndex;
-        } else {
-            currentIndex = (currentIndex + 1) % currentPlaylist.size();
-        }
+        currentIndex = (currentIndex + 1) % currentPlaylist.size();
         prepareMusicTrack(currentIndex);
         if (!isPausedByHand) {
             try {
