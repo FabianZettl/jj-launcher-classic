@@ -233,8 +233,18 @@
                 android:layout_height="wrap_content"
                 android:layout_alignParentRight="true"
                 android:orientation="horizontal">
-                <TextView android:id="@+id/tv_player_shuffle_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SHUFFLE" android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" android:visibility="gone" android:layout_marginRight="10dp" />
-                <TextView android:id="@+id/tv_player_repeat_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="REPEAT" android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" android:visibility="gone" />
+                <ImageView
+                    android:id="@+id/iv_player_shuffle_status"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:visibility="gone"
+                    android:layout_marginEnd="8dp" />
+
+                <ImageView
+                    android:id="@+id/iv_player_repeat_status"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:visibility="gone" />
             </LinearLayout>
         </RelativeLayout>
 
