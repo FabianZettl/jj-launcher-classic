@@ -126,6 +126,13 @@ public class MainActivity extends Activity {
     // 💡 백그라운드 미디어 제어권(스크린 오프) 변수
     private MediaSession mediaSession;
     private ImageView ivStatusPlay;
+
+    // 💡 미디어 라이브러리 브라우저 상태 관리 변수들 근처에 추가
+    private static final int BROWSER_FAVORITES = 5;
+
+    // 🚀 [추가] 즐겨찾기 전용 변수들
+    private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
+    private TextView tvPlayerFavoriteStatus;
     // 💡 [추가] OS 스캐너를 대체할 '자체 미디어 라이브러리 엔진' 변수들
     private static class SongItem {
         File file;
@@ -140,7 +147,11 @@ public class MainActivity extends Activity {
             album = al;
         }
     }
-
+    // 🚀 [추가] 스캔 진행률 표시용 변수들
+    private ProgressBar pbLoadingProgress;
+    private TextView tvLoadingProgress;
+    private int totalAudioFiles = 0;
+    private int scannedAudioFiles = 0;
     // 💡 [초고속 엔진] 수천 곡을 버티기 위한 재활용 리스트뷰와 기존 스크롤뷰
     private android.widget.ListView listVirtualSongs;
     private View scrollViewBrowser;
@@ -609,27 +620,32 @@ public class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_main);
 
-        // 🚀 [여기서부터 새로 추가!] 메인 화면 위에 덮어씌울 '로딩 스피너 팝업창'을 생성합니다.
+        // 🚀 [수정 완료] 기존 로딩 오버레이 코드를 아래 내용으로 통째로 덮어씌우세요!
         android.view.ViewGroup root = findViewById(android.R.id.content);
         layoutLoadingOverlay = new LinearLayout(this);
         layoutLoadingOverlay.setOrientation(LinearLayout.VERTICAL);
         layoutLoadingOverlay.setGravity(android.view.Gravity.CENTER);
-        layoutLoadingOverlay.setBackgroundColor(0xDD000000); // 짙은 반투명 검은색 배경으로 덮기
-        layoutLoadingOverlay.setClickable(true); // 로딩 중 뒷배경 터치 방지
-        layoutLoadingOverlay.setFocusable(true); // 로딩 중 휠 조작 방지
+        layoutLoadingOverlay.setBackgroundColor(0xDD000000);
+        layoutLoadingOverlay.setClickable(true);
+        layoutLoadingOverlay.setFocusable(true);
         layoutLoadingOverlay.setVisibility(View.GONE);
 
-        ProgressBar spinner = new ProgressBar(this, null, android.R.attr.progressBarStyleLarge);
-        layoutLoadingOverlay.addView(spinner);
+        // 1. 빙글빙글 스피너 대신, 쫙 차오르는 가로형 프로그레스 바(ProgressBar) 적용!
+        pbLoadingProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        pbLoadingProgress.setMax(100);
+        android.widget.LinearLayout.LayoutParams pbLp = new android.widget.LinearLayout.LayoutParams(
+                (int) (250 * getResources().getDisplayMetrics().density),
+                (int) (20 * getResources().getDisplayMetrics().density));
+        layoutLoadingOverlay.addView(pbLoadingProgress, pbLp);
 
-        TextView tvLoading = new TextView(this);
-        // 🚀 [수정 완료] 스캔 안내와 화면 꺼짐 경고 메시지 통합!
-        tvLoading.setText("Scanning Media Library...\nPlease wait and do not turn off the screen.");
-        tvLoading.setTextColor(0xFFFFFFFF); // 확실하고 선명한 흰색 글씨!
-        tvLoading.setTextSize(20);
-        tvLoading.setGravity(android.view.Gravity.CENTER);
-        tvLoading.setPadding(0, 30, 0, 0);
-        layoutLoadingOverlay.addView(tvLoading);
+        // 2. 실시간 숫자를 쏴줄 텍스트뷰
+        tvLoadingProgress = new TextView(this);
+        tvLoadingProgress.setText("Preparing to scan...\nPlease wait.");
+        tvLoadingProgress.setTextColor(0xFFFFFFFF);
+        tvLoadingProgress.setTextSize(18);
+        tvLoadingProgress.setGravity(android.view.Gravity.CENTER);
+        tvLoadingProgress.setPadding(0, 30, 0, 0);
+        layoutLoadingOverlay.addView(tvLoadingProgress);
 
         root.addView(layoutLoadingOverlay, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -804,32 +820,7 @@ public class MainActivity extends Activity {
 
         // 🚀 [추가된 부분] 앱이 켜질 때(혹은 튕기고 재시작될 때) 조용히 자동 스캔을 돌려 리스트를 복구합니다!
         if (customLibrary.isEmpty() && !isCustomScanning) {
-            isCustomScanning = true;
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    customLibrary.clear();
-                    buildCustomLibrary(rootFolder);
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            isCustomScanning = false;
-                            // 스캔이 끝났을 때 사용자가 이미 브라우저 화면에 진입해 있다면 화면을 새로고침해 줍니다.
-                            if (currentScreenState == STATE_BROWSER) {
-                                if (currentBrowserMode == BROWSER_ROOT) {
-                                    buildFileBrowserUI();
-                                } else if (currentBrowserMode == BROWSER_ARTISTS) {
-                                    buildVirtualCategories("ARTIST");
-                                } else if (currentBrowserMode == BROWSER_ALBUMS) {
-                                    buildVirtualCategories("ALBUM");
-                                } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
-                                    buildVirtualSongs();
-                                }
-                            }
-                        }
-                    });
-                }
-            }).start();
+            startMediaLibraryScan();
         }
         layoutMainMenu = findViewById(R.id.layout_main_menu);
         ivMainBg = findViewById(R.id.iv_main_bg);
@@ -913,6 +904,7 @@ public class MainActivity extends Activity {
         listVirtualSongs.setDivider(null); // 못생긴 기본 구분선 제거
         listVirtualSongs.setSelector(new android.graphics.drawable.ColorDrawable(0)); // 기본 터치 효과 제거
         listVirtualSongs.setItemsCanFocus(true);
+        listVirtualSongs.setSoundEffectsEnabled(false);
         listVirtualSongs.setVisibility(View.GONE); // 평소엔 숨겨둡니다.
 
         android.view.ViewGroup browserParent = (android.view.ViewGroup) scrollViewBrowser.getParent();
@@ -1087,10 +1079,53 @@ public class MainActivity extends Activity {
         playerProgress = findViewById(R.id.player_progress);
         tvPlayerTrackCount = findViewById(R.id.tv_player_track_count);
 
-        // 🚀 [수정 후]
         ivPlayerShuffleStatus = findViewById(R.id.iv_player_shuffle_status);
         ivPlayerRepeatStatus = findViewById(R.id.iv_player_repeat_status);
+
+        // 🚀🚀🚀 [수정 완료] 하트를 셔플/반복 아이콘과 겹치지 않게 바로 밑(세로)에 배치합니다! 🚀🚀🚀
+        android.widget.LinearLayout statusIconsLayout = (android.widget.LinearLayout) ivPlayerShuffleStatus.getParent();
+        android.widget.RelativeLayout parentRel = (android.widget.RelativeLayout) statusIconsLayout.getParent();
+
+        // 1. 셔플/반복 아이콘과 하트 아이콘을 위아래로 묶어줄 '세로형 투명 폴더'를 만듭니다.
+        android.widget.LinearLayout verticalWrapper = new android.widget.LinearLayout(this);
+        verticalWrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
+        verticalWrapper.setGravity(android.view.Gravity.RIGHT); // 전체를 오른쪽으로 정렬
+
+        // 2. 기존 그룹의 위치 규칙을 뺏어온 뒤, 기존 그룹을 분리합니다.
+        android.widget.RelativeLayout.LayoutParams params = (android.widget.RelativeLayout.LayoutParams) statusIconsLayout.getLayoutParams();
+        parentRel.removeView(statusIconsLayout);
+
+        // 3. 기존 셔플/반복 그룹의 속성을 정리하여 세로형 폴더 최상단에 넣습니다.
+        statusIconsLayout.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+        verticalWrapper.addView(statusIconsLayout);
+
+        // 4. 대망의 하트 아이콘을 만들고, 반복 아이콘 바로 밑에 붙입니다!
+        tvPlayerFavoriteStatus = new TextView(this);
+        tvPlayerFavoriteStatus.setText("♥");
+        tvPlayerFavoriteStatus.setTextSize(20);
+        tvPlayerFavoriteStatus.setVisibility(View.GONE);
+
+        android.widget.LinearLayout.LayoutParams heartLp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        heartLp.topMargin = (int) (8 * getResources().getDisplayMetrics().density); // 반복 아이콘과의 간격을 8dp 띄움
+        heartLp.rightMargin = (int) (2 * getResources().getDisplayMetrics().density); // 우측 여백 미세 조정
+        verticalWrapper.addView(tvPlayerFavoriteStatus, heartLp);
+
+        // 5. 완성된 세로형 폴더를 원래 자리에 쏙 끼워 넣습니다.
+        parentRel.addView(verticalWrapper, params);
+
+        try {
+            // 앱이 켜질 때 금고(SharedPreferences)에서 즐겨찾기 경로들을 싹 다 가져옵니다.
+            java.util.Set<String> savedFavs = prefs.getStringSet("favorites", new java.util.HashSet<String>());
+            favoritePaths = new java.util.HashSet<>(savedFavs);
+        } catch (Exception e) {}
+        // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
+
         updatePlayerStatusIndicators();
+
 
         // 🚀 [수정] 아이콘 파일명(.png)을 매개변수로 던져줍니다.
         setupMenuButton(btnNowPlaying, R.drawable.music_circle, "icon_now_playing.png");
@@ -1124,35 +1159,9 @@ public class MainActivity extends Activity {
                 currentBrowserMode = BROWSER_ROOT; // 💡 뮤직 진입 시 라이브러리 최상단으로!
 
                 // 🚀 재부팅 직후 SD 카드가 늦게 인식되어 초기 스캔이 실패했을 경우를 대비해,
-                // 뮤직 메뉴 진입 시 라이브러리가 비어있다면 다시 한번 스캔을 자동으로 돌립니다.
                 if (customLibrary.isEmpty() && !isCustomScanning) {
-                    isCustomScanning = true;
-                    new Thread(new Runnable() {
-                        @Override
-                        public void run() {
-                            customLibrary.clear();
-                            buildCustomLibrary(rootFolder);
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    isCustomScanning = false;
-                                    if (currentScreenState == STATE_BROWSER) {
-                                        if (currentBrowserMode == BROWSER_ROOT) {
-                                            buildFileBrowserUI();
-                                        } else if (currentBrowserMode == BROWSER_ARTISTS) {
-                                            buildVirtualCategories("ARTIST");
-                                        } else if (currentBrowserMode == BROWSER_ALBUMS) {
-                                            buildVirtualCategories("ALBUM");
-                                        } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
-                                            buildVirtualSongs();
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    }).start();
+                    startMediaLibraryScan();
                 }
-
                 changeScreen(STATE_BROWSER);
                 if (isCustomScanning) {
                     showLoadingPopup();
@@ -1264,7 +1273,107 @@ public class MainActivity extends Activity {
             btnNowPlaying.requestFocus(); // 평소 앱을 켤 때는 원래대로 메인 메뉴 포커스
         }
     }
+    // 🚀 [신규 추가] 폴더를 빛의 속도로 훑어서 노래가 총 몇 곡인지 숫자만 먼저 세는 함수
+    private void countAudioFiles(File folder) {
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) countAudioFiles(f);
+                else if (isAudioFile(f)) totalAudioFiles++;
+            }
+        }
+    }
 
+    // 🚀 [수정 완료] 기존 buildCustomLibrary 함수를 통째로 아래 코드로 덮어씌우세요!
+    private void buildCustomLibrary(File folder) {
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    buildCustomLibrary(f);
+                } else if (isAudioFile(f)) {
+                    if (blacklist.contains(f.getAbsolutePath())) continue;
+                    try {
+                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                        java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                        mmr.setDataSource(fis.getFD());
+
+                        String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                        String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                        String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+
+                        if (title == null || title.isEmpty()) title = f.getName();
+                        if (artist == null || artist.isEmpty()) artist = "Unknown Artist";
+                        if (album == null || album.isEmpty()) album = "Unknown Album";
+
+                        customLibrary.add(new SongItem(f, title, artist, album));
+
+                        fis.close();
+                        mmr.release();
+                    } catch (Exception e) {}
+
+                    // 🚀 [핵심] 한 곡 읽어 들일 때마다 전체 진행률을 계산해서 화면의 바(Bar)를 밀어 올립니다!
+                    scannedAudioFiles++;
+                    if (totalAudioFiles > 0) {
+                        final int progress = (int) (((float) scannedAudioFiles / totalAudioFiles) * 100);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (pbLoadingProgress != null) pbLoadingProgress.setProgress(progress);
+                                if (tvLoadingProgress != null) {
+                                    tvLoadingProgress.setText("Scanning Music: " + progress + "%\n(" + scannedAudioFiles + " / " + totalAudioFiles + ")\nDo not turn off the screen.");
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 🚀 [신규 추가] 카운팅 ➔ 스캔 ➔ 화면 갱신을 한 방에 처리하는 중앙 스캔 엔진
+    private void startMediaLibraryScan() {
+        if (isCustomScanning) return;
+        isCustomScanning = true;
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (pbLoadingProgress != null) pbLoadingProgress.setProgress(0);
+                if (tvLoadingProgress != null) tvLoadingProgress.setText("Counting files...\nPlease wait.");
+                showLoadingPopup();
+            }
+        });
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                customLibrary.clear();
+                totalAudioFiles = 0;
+                scannedAudioFiles = 0;
+
+                countAudioFiles(rootFolder); // 1. 총 몇 곡인지 광속으로 파악!
+                buildCustomLibrary(rootFolder); // 2. 본격적인 태그 추출 및 UI 갱신 시작!
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        isCustomScanning = false;
+                        // 스캔 완료 팝업은 기존의 showLoadingPopup() 내장 체커가 알아서 닫아줍니다!
+                        Toast.makeText(MainActivity.this, "Scan Complete! " + customLibrary.size() + " songs found.", Toast.LENGTH_SHORT).show();
+
+                        // 화면 리프레시
+                        if (currentScreenState == STATE_BROWSER) {
+                            if (currentBrowserMode == BROWSER_ROOT) buildFileBrowserUI();
+                            else if (currentBrowserMode == BROWSER_ARTISTS) buildVirtualCategories("ARTIST");
+                            else if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
+                            else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
     // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
     private void showLoadingPopup() {
         if (layoutLoadingOverlay != null) {
@@ -3451,44 +3560,43 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 1. 안드로이드 스캐너를 버리고, 앱이 직접 MP3 태그를 추출하여 분류하는 함수!
-    private void buildCustomLibrary(File folder) {
-        File[] files = folder.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    buildCustomLibrary(f); // 폴더면 끝까지 파고듭니다.
-                } else if (isAudioFile(f)) {
 
-                    if (blacklist.contains(f.getAbsolutePath()))
-                        continue;
-                    try {
-                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                        java.io.FileInputStream fis = new java.io.FileInputStream(f);
-                        mmr.setDataSource(fis.getFD());
+    // 🚀 [신규 추가] '💖 My Favorites' 전용 곡 리스트 생성기
+    private void buildVirtualSongsForFavorites() {
+        if (isCustomScanning) {
+            showLoadingPopup();
+            currentBrowserMode = BROWSER_ROOT;
+            buildFileBrowserUI();
+            return;
+        }
+        scrollViewBrowser.setVisibility(View.GONE);
+        listVirtualSongs.setVisibility(View.VISIBLE);
 
-                        String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                        String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                        String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+        tvBrowserPath.setText("Library: 💖 My Favorites");
 
-                        if (title == null || title.isEmpty())
-                            title = f.getName();
-                        if (artist == null || artist.isEmpty())
-                            artist = "Unknown Artist";
-                        if (album == null || album.isEmpty())
-                            album = "Unknown Album";
+        virtualSongList.clear();
+        currentScrollIndexList.clear();
+        List<SongItem> targetSongs = new ArrayList<>();
 
-                        customLibrary.add(new SongItem(f, title, artist, album));
-
-                        fis.close();
-                        mmr.release();
-                    } catch (Exception e) {
-                    }
-                }
+        for (SongItem song : customLibrary) {
+            // 금고(favoritePaths)에 이 노래의 경로가 적혀있다면 리스트에 합류!
+            if (favoritePaths.contains(song.file.getAbsolutePath())) {
+                targetSongs.add(song);
+                virtualSongList.add(song.file);
+                currentScrollIndexList.add(song.title);
             }
         }
-    }
 
+        if (targetSongs.isEmpty()) {
+            Toast.makeText(this, "No favorites added yet.", Toast.LENGTH_SHORT).show();
+        }
+
+        SongListAdapter adapter = new SongListAdapter(targetSongs);
+        listVirtualSongs.setAdapter(adapter);
+        listVirtualSongs.post(() -> {
+            if (listVirtualSongs.getChildCount() > 0) listVirtualSongs.getChildAt(0).requestFocus();
+        });
+    }
     // 💡 2. 라이브러리 메인 라우터 (자체 스캔 버튼 적용)
     private void buildFileBrowserUI() {
         if (scrollViewBrowser != null)
@@ -3503,8 +3611,17 @@ public class MainActivity extends Activity {
         }
 
         if (currentBrowserMode == BROWSER_ROOT) {
-            tvBrowserPath.setText("Library: Main Menu");
-
+            tvBrowserPath.setText("Library");
+// 🚀🚀🚀 [여기에 10줄 추가!] 최상단에 즐겨찾기 메뉴 버튼 생성!
+            Button btnFav = createListButton("💖 My Favorites");
+            btnFav.setTextColor(0xFFFF8888); // 눈에 띄는 핑크빛!
+            btnFav.setOnClickListener(v -> {
+                clickFeedback();
+                currentBrowserMode = BROWSER_FAVORITES;
+                buildVirtualSongsForFavorites();
+            });
+            containerBrowserItems.addView(btnFav);
+            // 🚀🚀🚀 [추가 끝] 🚀🚀🚀
             Button btnFolder = createListButton("📁 Folders");
             btnFolder.setOnClickListener(v -> {
                 clickFeedback();
@@ -3545,40 +3662,7 @@ public class MainActivity extends Activity {
             btnScan.setTextColor(0xFFFFFFFF);
             btnScan.setOnClickListener(v -> {
                 clickFeedback();
-                if (isCustomScanning)
-                    return;
-
-                isCustomScanning = true;
-                showLoadingPopup();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        customLibrary.clear();
-                        buildCustomLibrary(rootFolder);
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                isCustomScanning = false;
-                                Toast.makeText(MainActivity.this,
-                                        "Scan Complete! " + customLibrary.size() + " songs found.", Toast.LENGTH_SHORT)
-                                        .show();
-                                if (currentScreenState == STATE_BROWSER) {
-                                    if (currentBrowserMode == BROWSER_ROOT) {
-                                        buildFileBrowserUI();
-                                    } else if (currentBrowserMode == BROWSER_ARTISTS) {
-                                        buildVirtualCategories("ARTIST");
-                                    } else if (currentBrowserMode == BROWSER_ALBUMS) {
-                                        buildVirtualCategories("ALBUM");
-                                    } else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) {
-                                        buildVirtualSongs();
-                                    }
-                                }
-                            }
-                        });
-                    }
-                }).start();
+                startMediaLibraryScan();
             });
             containerBrowserItems.addView(btnScan);
             if (containerBrowserItems.getChildCount() > 0)
@@ -4393,10 +4477,36 @@ public class MainActivity extends Activity {
                     ivPlayerRepeatStatus.setVisibility(View.GONE);
                 }
             }
+            if (tvPlayerFavoriteStatus != null) {
+                if (!currentPlaylist.isEmpty() && favoritePaths.contains(currentPlaylist.get(currentIndex).getAbsolutePath())) {
+                    tvPlayerFavoriteStatus.setVisibility(View.VISIBLE);
+                } else {
+                    tvPlayerFavoriteStatus.setVisibility(View.GONE);
+                }
+            }
         } catch (Exception e) {
         }
     }
+    // 🚀 [신규 추가] 휠 버튼을 길게 누를 때 작동할 즐겨찾기 스위치 함수! (다른 함수들 사이에 넣으세요)
+    private void toggleFavorite() {
+        if (currentPlaylist.isEmpty()) return;
+        File currentSong = currentPlaylist.get(currentIndex);
+        String path = currentSong.getAbsolutePath();
 
+        if (favoritePaths.contains(path)) {
+            favoritePaths.remove(path);
+            Toast.makeText(this, "♡ Removed from Favorites", Toast.LENGTH_SHORT).show();
+        } else {
+            favoritePaths.add(path);
+            Toast.makeText(this, "♥ Added to Favorites", Toast.LENGTH_SHORT).show();
+        }
+
+        try {
+            prefs.edit().putStringSet("favorites", favoritePaths).commit(); // 즉시 영구 저장!
+        } catch (Exception e) {}
+
+        updatePlayerStatusIndicators(); // 💖 아이콘 새로고침
+    }
     private void updatePlayerUI() {
         try {
             if (mediaPlayer != null && mediaPlayer.isPlaying()) {
@@ -4534,6 +4644,9 @@ public class MainActivity extends Activity {
 
         if (isWakingUp) {
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                if (event.getRepeatCount() == 0) {
+                    event.startTracking(); // 🚀 [핵심 기술] 길게 누르는지 감시(추적)를 시작합니다!
+                }
                 return true;
             }
 
@@ -4573,6 +4686,9 @@ public class MainActivity extends Activity {
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            if (event.getRepeatCount() == 0) {
+                event.startTracking(); // 🚀 [핵심 기술] 길게 누르는지 감시(추적)를 시작합니다!
+            }
             return true;
         }
 
@@ -4742,6 +4858,10 @@ public class MainActivity extends Activity {
                             currentBrowserMode = BROWSER_ROOT;
                             lastBrowserFocusText = "👤 Artists";
                             buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_FAVORITES) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = "💖 My Favorites";
+                            buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_ALBUMS) {
                             currentBrowserMode = BROWSER_ROOT;
                             lastBrowserFocusText = "💿 Albums";
@@ -4767,6 +4887,10 @@ public class MainActivity extends Activity {
                     && listVirtualSongs.getVisibility() == View.VISIBLE) {
 
                 long now = System.currentTimeMillis();
+                if (now - lastWheelTime < 40 && wheelFastCount < 2) {
+                    lastWheelTime = now;
+                    return true;
+                }
                 boolean isFastScroll = false;
 
                 // 💡 [오토매틱 엔진] 0.05초(50ms) 이내에 연속으로 휠이 3칸 이상 돌아가면 '고속 점프 모드' 발동!
@@ -4961,9 +5085,9 @@ public class MainActivity extends Activity {
         }
 
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-            try {
-                handleCenterShortClick();
-            } catch (Exception e) {
+            // 🚀 길게 눌러서 소모된(Canceled) 이벤트가 아닐 때만 숏클릭(스펙트럼)을 발동시킵니다!
+            if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
+                try { handleCenterShortClick(); } catch (Exception e) {}
             }
             return true;
         }
@@ -4975,7 +5099,18 @@ public class MainActivity extends Activity {
         }
         return super.onKeyUp(keyCode, event);
     }
-
+    // 🚀 [신규 추가] 1초 이상 꾹~ 눌렀을 때 발동하는 안드로이드 공식 시스템 이벤트
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            if (currentScreenState == STATE_PLAYER) {
+                toggleFavorite(); // 💖 즐겨찾기 추가/해제!
+                clickFeedback();
+                return true;
+            }
+        }
+        return super.onKeyLongPress(keyCode, event);
+    }
     @Override
     protected void onDestroy() {
         super.onDestroy();
