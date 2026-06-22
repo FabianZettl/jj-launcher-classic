@@ -146,7 +146,7 @@ This is the core of your theme. Create a text file named exactly `config.json` i
 
 # 🎨 Y1 Theme Editor User Manual
 
-https://theme-editor-pmrbiwuoy-ismileblue.vercel.app/
+https://theme-editor-gules.vercel.app/
 
 ⚠️ **Note:** This manual and the themes created are only compatible with **Launcher version 0.8 or higher**.
 
