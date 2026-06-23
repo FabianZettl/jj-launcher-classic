@@ -4447,6 +4447,18 @@ public class MainActivity extends Activity {
                 if (android.os.Build.VERSION.SDK_INT >= 21) {
                     ivWidgetFocusImage.setClipToOutline(true); // 둥근 배경에 맞춰 이미지도 둥글게 자르기
                 }
+
+                // 🚀 [여기 추가!!] 버튼 목록 중 가장 첫 번째(포커스 인덱스 0번)의 이미지를 기본값으로 쫙 깔아둡니다!
+                if (!buttonElements.isEmpty()) {
+                    String defaultImg = buttonElements.get(0).previewImage;
+                    if (defaultImg != null && !defaultImg.isEmpty()) {
+                        android.graphics.Bitmap bmpPreview = ThemeManager.getCustomIcon(defaultImg, MainActivity.this, 0);
+                        if (bmpPreview != null) {
+                            ivWidgetFocusImage.setImageBitmap(bmpPreview);
+                        }
+                    }
+                }
+
                 canvas.addView(ivWidgetFocusImage);
             }
         }
