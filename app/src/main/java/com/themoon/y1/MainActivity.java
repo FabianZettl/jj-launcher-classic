@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
             }
         }
     };
-
+    private boolean isWidgetFocusImageOn = false; // 🚀 [추가] 포커스 위젯 전원 변수
     // 💡 [추가] 홈 스크린 위젯 관련 변수들
     private boolean isWidgetClockOn = false;
     private boolean isWidgetBatteryOn = false;
@@ -860,7 +860,10 @@ public class MainActivity extends Activity {
             isWidgetAlbumOn = prefs.getBoolean("widget_album", false);
         } catch (Exception e) {
         }
-
+        try {
+            isWidgetFocusImageOn = prefs.getBoolean("widget_focus_image", false); // 🚀 [추가] 상태 불러오기
+        } catch (Exception e) {
+        }
 
         updateMainMenuBackground(); // 💡 앱을 켜면 저장된 상태에 맞춰 배경 자동 적용
 
@@ -1493,6 +1496,10 @@ public class MainActivity extends Activity {
                     if(level != -1 && scale != -1) customCircularBatteryView.setBatteryLevel((int) ((level / (float) scale) * 100), isCharging);
                 }
             }
+            // 🚀 6. 신규: 다이내믹 포커스 이미지 위젯 업데이트
+            if (ivWidgetFocusImage != null) {
+                ivWidgetFocusImage.setVisibility(isWidgetFocusImageOn ? View.VISIBLE : View.GONE);
+            }
         }
     }
     // 💡 [추가] 문자열에서 첫 글자를 뽑아내어 화면에 띄워주는 함수
@@ -1625,7 +1632,7 @@ public class MainActivity extends Activity {
                         editor.putBoolean("reboot_to_theme", true);
 
                         // 🚀 [스마트 자동화] 선택한 테마의 부품(JSON)들을 스캔해서 위젯 스위치를 알아서 조작합니다!
-                        boolean hasClock = false, hasAnalog = false, hasBattery = false, hasCircular = false, hasAlbum = false;
+                        boolean hasClock = false, hasAnalog = false, hasBattery = false, hasCircular = false, hasAlbum = false, hasFocusImage = false; // 🚀 변수 추가
 
                         for (ThemeManager.MenuElement el : theme.menuElements) {
                             if ("widget_clock".equals(el.type)) hasClock = true;
@@ -1633,6 +1640,7 @@ public class MainActivity extends Activity {
                             if ("widget_battery".equals(el.type)) hasBattery = true;
                             if ("widget_circular_battery".equals(el.type)) hasCircular = true;
                             if ("widget_album".equals(el.type)) hasAlbum = true;
+                            if ("widget_focus_image".equals(el.type)) hasFocusImage = true; // 🚀 검사 추가
                         }
 
                         // 테마에 포함된 위젯은 'ON', 없는 위젯은 'OFF'로 강제 동기화!
@@ -1641,6 +1649,7 @@ public class MainActivity extends Activity {
                         editor.putBoolean("widget_battery", hasBattery);
                         editor.putBoolean("widget_circular_battery", hasCircular);
                         editor.putBoolean("widget_album", hasAlbum);
+                        editor.putBoolean("widget_focus_image", hasFocusImage); // 🚀 저장 추가
 
                         editor.commit(); // 설정 저장 완료
                     } catch (Exception e) {
@@ -3310,6 +3319,20 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnAlbum);
 
+        // 🚀 6. 신규: 다이내믹 포커스 이미지 위젯 스위치 추가!
+        final LinearLayout btnFocusImage = createSettingRow("Widget: Dynamic Focus Image", isWidgetFocusImageOn ? "ON" : "OFF");
+        btnFocusImage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isWidgetFocusImageOn = !isWidgetFocusImageOn;
+                ((TextView) btnFocusImage.getChildAt(1)).setText(isWidgetFocusImageOn ? "ON" : "OFF");
+                try { prefs.edit().putBoolean("widget_focus_image", isWidgetFocusImageOn).commit(); } catch (Exception e) {}
+                refreshWidgets(); // 스위치를 켜면 즉시 화면에 반영!
+            }
+        });
+        containerSettingsItems.addView(btnFocusImage);
+
         // 진입 시 자동으로 두 번째 항목에 포커스를 줍니다.
         if (containerSettingsItems.getChildCount() > 1) {
             containerSettingsItems.getChildAt(1).requestFocus();
@@ -4170,6 +4193,10 @@ public class MainActivity extends Activity {
         canvas.setTag("dynamic_canvas");
         canvas.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
 
+        // 🚀 [핵심 해결 3] 캔버스 레벨에서도 아이콘이 크게 튀어나올 수 있도록 봉인 해제!
+        canvas.setClipChildren(false);
+        canvas.setClipToPadding(false);
+
         mainMenu.addView(canvas, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
@@ -4480,12 +4507,33 @@ public class MainActivity extends Activity {
             final TextView tvMain = new TextView(this);
             tvMain.setSingleLine(true);
             tvMain.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            // 🚀 [안드로이드 버그 해결] 텍스트뷰 특유의 보이지 않는 유령 여백(약 5px)을 물리적으로 완벽하게 박살 냅니다!
+            tvMain.setIncludeFontPadding(false);
+            tvMain.setPadding(0, 0, 0, 0);
+            tvMain.setMinimumWidth(0);
+            tvMain.setMinimumHeight(0);
 
             // 🚀 3. 우측 화살표 및 포인트 텍스트 뷰
             final TextView tvRight = new TextView(this);
             tvRight.setSingleLine(true);
+            tvRight.setIncludeFontPadding(false); // 여기도 일치시킵니다.
+            tvRight.setPadding(0, 0, 0, 0);
 
             final boolean isIconOnly = (el.textNormal == null || el.textNormal.trim().isEmpty());
+
+            // 🚀 [궁극의 공식] 패딩이 커져서 아이콘 크기가 마이너스가 되어 앱이 튕기는 에러까지 완벽하게 차단합니다!
+            final int calculatedIconSize;
+            if (isIconOnly) {
+                int w = el.width > 0 ? el.width : 50;
+                int h = el.height > 0 ? el.height : 50;
+                int p = (int)(el.padding * density);
+                int tempSize = (int)(Math.min(w, h) * density) - (p * 2);
+                // 아이콘이 너무 작아지면 최소 10dp는 유지하도록 방어막을 칩니다.
+                calculatedIconSize = tempSize > 0 ? tempSize : (int)(10 * density);
+            } else {
+                int h = el.height > 0 ? el.height : 50;
+                calculatedIconSize = (int)(h * density * 0.5f);
+            }
 
             int textGravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
             if (el.textAlign != null && !el.textAlign.isEmpty()) {
@@ -4500,19 +4548,24 @@ public class MainActivity extends Activity {
 
             if (isIconOnly) {
                 btn.setGravity(android.view.Gravity.CENTER);
-                // 테마 파일에 적힌 패딩 값을 그대로 주입합니다!
                 int p = (int)(el.padding * density);
                 btn.setPadding(p, p, p, p);
                 tvMain.setGravity(android.view.Gravity.CENTER);
             } else {
                 btn.setGravity(android.view.Gravity.CENTER_VERTICAL);
                 tvMain.setGravity(textGravity);
-                tvRight.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL); // 우측 고정
+                tvRight.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+
+                // 🚀 [해결 1] 글씨가 있는 버튼도 에디터에서 설정한 패딩값을 완벽하게 챙겨줍니다!
+                int customPad = (int)(el.padding * density);
 
                 if (el.textAlign != null && (el.textAlign.equalsIgnoreCase("top") || el.textAlign.equalsIgnoreCase("bottom"))) {
-                    btn.setPadding(0, (int)(15 * density), 0, (int)(15 * density));
+                    // 사용자가 값을 넣었으면 그 값을 쓰고, 안 넣었으면(0) 기본값 15 적용
+                    int verticalPad = el.padding > 0 ? customPad : (int)(15 * density);
+                    btn.setPadding(customPad, verticalPad, customPad, verticalPad);
                 } else {
-                    btn.setPadding((int)(15 * density), 0, (int)(15 * density), 0);
+                    int horizontalPad = el.padding > 0 ? customPad : (int)(15 * density);
+                    btn.setPadding(horizontalPad, customPad, horizontalPad, customPad);
                 }
             }
 
@@ -4521,60 +4574,83 @@ public class MainActivity extends Activity {
             tvRight.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
 
             if (!isIconOnly) {
-                float size = el.textSize > 0 ? el.textSize : 18;
-                tvMain.setTextSize(size);
-                tvRight.setTextSize(size);
+                // 🚀 [글자 크기 버그 해결] 안드로이드 기본(SP) 단위 대신 픽셀(PX) 단위를 사용하여 에디터와 100% 똑같은 크기로 강제 고정합니다!
+                float mainSize = el.textSize > 0 ? el.textSize : 16; // 에디터 기본값과 동일한 16px로 세팅
+                float rightSize = el.textSecondarySize > 0 ? el.textSecondarySize : mainSize; // 우측 텍스트 독립 크기 지원
+
+                tvMain.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, mainSize * density);
+                tvRight.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, rightSize * density);
             }
 
-            // 🚀 가중치(Weight) 분배: 메인 텍스트가 남은 공간을 모두 차지해 화살표를 우측 끝으로 밀어냅니다.
-            LinearLayout.LayoutParams lpMain = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-            LinearLayout.LayoutParams lpRight = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lpRight.leftMargin = (int)(10 * density);
+            LinearLayout.LayoutParams lpMain;
+            LinearLayout.LayoutParams lpRight;
+
+            if (isIconOnly) {
+                // 🚀 [핵심 해결 1] 아이콘 전용일 때는 우측 10dp 마진(도둑)을 완전히 없애고 자기 크기만 갖게 하여 정중앙에 고정!
+                lpMain = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lpRight = new LinearLayout.LayoutParams(0, 0);
+                tvRight.setVisibility(View.GONE); // 유령 텍스트 뷰 소멸
+
+                // 🚀 [핵심 해결 2] 확대(Zoom) 애니메이션이 발동할 때 패딩선에 걸려 잘리지 않도록 봉인 해제!
+                btn.setClipChildren(false);
+                btn.setClipToPadding(false);
+            } else {
+                // 일반 버튼은 텍스트가 남은 공간을 밀어내도록 가중치 1.0f 유지
+                lpMain = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                lpRight = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                lpRight.leftMargin = (int)(10 * density);
+            }
 
             btn.addView(tvMain, lpMain);
             btn.addView(tvRight, lpRight);
 
             final Runnable setNormalState = new Runnable() {
                 public void run() {
+                    // 🚀 [버그 해결 1] 테마 기본 배경색 대신, 에디터에서 개별 지정한 배경색(bgColor)이 있으면 최우선으로 가져옵니다!
+                    int normalBgColor = ThemeManager.getListButtonNormalBg();
+                    if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
+                        try { normalBgColor = android.graphics.Color.parseColor(el.bgColor.trim()); } catch (Exception e) {}
+                    }
+
+                    // 🚀 [버그 해결 2] 아이콘 전용 버튼이든 일반 버튼이든 투명색 강제 할당을 없애고 무조건 배경색을 칠해줍니다!
+                    btn.setBackground(createDynamicButtonBackground(normalBgColor, el.radius));
+
                     if (isIconOnly) {
                         tvMain.setText("");
-                        btn.setBackgroundColor(0x00000000);
                     } else {
                         tvMain.setText(el.textNormal);
                         tvMain.setTextColor(ThemeManager.getTextColorPrimary());
-                        // 🚀 우측 텍스트 내용 및 색상 부여
                         tvRight.setText(el.textRight != null ? el.textRight : "");
-// 🚀 우측 텍스트 전용 일반 색상 적용
+
                         if (el.textRightColor != null && !el.textRightColor.isEmpty()) {
                             try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightColor)); }
                             catch (Exception e) { tvRight.setTextColor(ThemeManager.getTextColorPrimary()); }
                         } else {
                             tvRight.setTextColor(ThemeManager.getTextColorPrimary());
                         }
-                        btn.setBackground(createDynamicButtonBackground(ThemeManager.getListButtonNormalBg(), el.radius));
                     }
 
                     if (el.iconNormal != null && !el.iconNormal.isEmpty()) {
                         android.graphics.Bitmap bmp = ThemeManager.getCustomIcon(el.iconNormal, MainActivity.this, 0);
                         if (bmp != null) {
-                            android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), bmp);
-                            int iconSize;
-                            if (isIconOnly) {
-                                int w = el.width > 0 ? el.width : 50;
-                                int h = el.height > 0 ? el.height : 50;
-                                int p = (int)(el.padding * density); // 패딩 값 가져오기
-                                // 박스 크기에서 양쪽 패딩을 뺀 만큼만 아이콘 크기로 지정합니다!
-                                iconSize = (int)(Math.min(w, h) * density) - (p * 2);
-                                if (iconSize <= 0) iconSize = (int)(30 * density); // 에러 방어
-                            } else {
-                                int h = el.height > 0 ? el.height : 50;
-                                iconSize = (int)(h * density * 0.5f);
-                            }
-                            d.setBounds(0, 0, iconSize, iconSize);
+                            // 🚀 [핵심 기술 1] 안드로이드가 원본 크기를 무시하지 못하도록, 비트맵 자체를 픽셀 단위로 물리적으로 깎아냅니다!
+                            android.graphics.Bitmap scaledBmp = android.graphics.Bitmap.createScaledBitmap(bmp, calculatedIconSize, calculatedIconSize, true);
+                            android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), scaledBmp);
+
+                            d.setBounds(0, 0, calculatedIconSize, calculatedIconSize);
                             tvMain.setCompoundDrawables(d, null, null, null);
+
                             tvMain.setCompoundDrawablePadding(isIconOnly ? 0 : (int)(10 * density));
-                        } else { tvMain.setCompoundDrawables(null, null, null, null); }
-                    } else { tvMain.setCompoundDrawables(null, null, null, null); }
+                        } else {
+                            tvMain.setCompoundDrawables(null, null, null, null);
+                        }
+                    } else {
+                        tvMain.setCompoundDrawables(null, null, null, null);
+                    }
+                    tvMain.setTranslationX(0);
+                    tvMain.setTranslationY(0);
+                    tvMain.setScaleX(1.0f);
+                    tvMain.setScaleY(1.0f);
                 }
             };
             setNormalState.run();
@@ -4605,17 +4681,11 @@ public class MainActivity extends Activity {
                         if (targetIcon != null && !targetIcon.isEmpty()) {
                             android.graphics.Bitmap bmpF = ThemeManager.getCustomIcon(targetIcon, MainActivity.this, 0);
                             if (bmpF != null) {
-                                android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), bmpF);
-                                int iconSize;
-                                if (isIconOnly) {
-                                    int w = el.width > 0 ? el.width : 50;
-                                    int h = el.height > 0 ? el.height : 50;
-                                    iconSize = (int)(Math.min(w, h) * density);
-                                } else {
-                                    int h = el.height > 0 ? el.height : 50;
-                                    iconSize = (int)(h * density * 0.5f);
-                                }
-                                d.setBounds(0, 0, iconSize, iconSize);
+                                // 🚀 [핵심 기술 2] 포커스 시에도 똑같이 비트맵을 물리적으로 깎아서 끼웁니다!
+                                android.graphics.Bitmap scaledBmpF = android.graphics.Bitmap.createScaledBitmap(bmpF, calculatedIconSize, calculatedIconSize, true);
+                                android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(getResources(), scaledBmpF);
+
+                                d.setBounds(0, 0, calculatedIconSize, calculatedIconSize);
                                 tvMain.setCompoundDrawables(d, null, null, null);
                             }
                         }
@@ -4631,7 +4701,20 @@ public class MainActivity extends Activity {
                                 ivWidgetFocusImage.setImageDrawable(null); // 이미지가 지정되지 않았으면 비움
                             }
                         }
-                    } else { setNormalState.run(); }
+                        tvMain.animate()
+                                .translationX(el.focusOffsetX * density)
+                                .translationY(el.focusOffsetY * density)
+                                .scaleX(el.focusScale).scaleY(el.focusScale)
+                                .setDuration(150).start();
+
+                    } else {
+                        // 포커스 빠질 때 원상 복구
+                        tvMain.animate()
+                                .translationX(0).translationY(0)
+                                .scaleX(1.0f).scaleY(1.0f)
+                                .setDuration(150).start();
+                        setNormalState.run();
+                    }
                 }
             });
 
