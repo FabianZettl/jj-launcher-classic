@@ -2777,7 +2777,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnSound);
 
-        LinearLayout btnVibrateMenu = createSettingRow("Vibration Settings", "〉 ");
+        LinearLayout btnVibrateMenu = createSettingRow("Vibration", "〉 ");
         btnVibrateMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2804,7 +2804,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnScreenOffCtrl);
         // 🚀 [수정된 테마 설정 버튼]
-        final LinearLayout btnTheme = createSettingRow("App Theme", ThemeManager.getCurrentTheme().name);
+        final LinearLayout btnTheme = createSettingRow("Theme", ThemeManager.getCurrentTheme().name);
         btnTheme.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2850,7 +2850,7 @@ public class MainActivity extends Activity {
 
         // createCategoryHeader("━ SYSTEM MENUS ━");
 
-        LinearLayout btnPowerOff = createSettingRow("Power Off (Shutdown)", "〉 ");
+        LinearLayout btnPowerOff = createSettingRow("Power Off", "〉 ");
         btnPowerOff.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2933,7 +2933,7 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnSwitchRockbox);
-        LinearLayout btnServerMenu = createSettingRow("Web Server (PC Upload)", "〉 ");
+        LinearLayout btnServerMenu = createSettingRow("Web Server", "〉 ");
         btnServerMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2943,7 +2943,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnServerMenu);
 
-        LinearLayout btnWifiMenu = createSettingRow("Wi-Fi Setup", "〉 ");
+        LinearLayout btnWifiMenu = createSettingRow("Wi-Fi", "〉 ");
         btnWifiMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2968,7 +2968,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnAutoFetch);
 
-        LinearLayout btnBtMenu = createSettingRow("Bluetooth Setup", "〉 ");
+        LinearLayout btnBtMenu = createSettingRow("Bluetooth", "〉 ");
         btnBtMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2988,7 +2988,7 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnBrightMenu);
 
-        LinearLayout btnStorageMenu = createSettingRow("Storage Info", "〉 ");
+        LinearLayout btnStorageMenu = createSettingRow("Storage", "〉 ");
         btnStorageMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -2999,7 +2999,7 @@ public class MainActivity extends Activity {
         containerSettingsItems.addView(btnStorageMenu);
 
         // 🚀 [수정] 흩어져 있던 두 가지 배경 기능을 'Background Settings' 라는 하나의 서브 메뉴로 묶어버립니다!
-        LinearLayout btnBgMenu = createSettingRow("Background Settings", "〉 ");
+        LinearLayout btnBgMenu = createSettingRow("Background", "〉 ");
         btnBgMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
