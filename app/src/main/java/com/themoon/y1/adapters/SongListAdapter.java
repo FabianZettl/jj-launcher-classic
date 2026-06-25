@@ -62,7 +62,10 @@ public class SongListAdapter extends BaseAdapter {
             @Override
             public void onClick(View v) {
                 MainActivity.instance.clickFeedback();
-                MainActivity.instance.playTrackList(MainActivity.instance.virtualSongList, position);
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(MainActivity.instance.virtualSongList, position);
+
+                // 🚀 [화면 전환 트리거] 노래가 재생되면 화면을 플레이어 화면(STATE_PLAYER = 3)으로 전환합니다.
+                MainActivity.instance.changeScreen(3);
             }
         });
 

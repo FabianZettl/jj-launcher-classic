@@ -123,12 +123,12 @@ public class MainActivity extends Activity {
     private long lastWheelTime = 0;
     private int wheelFastCount = 0;
     public static MainActivity instance;
-    private long lastTrackChangeTime = 0; // 🚀 기기의 중복 키 신호를 막아줄 방어막 변수
+    public long lastTrackChangeTime = 0; // 🚀 기기의 중복 키 신호를 막아줄 방어막 변수
     // 💡 [추가] 오디오 스펙트럼 관련 변수들
     private android.media.audiofx.Visualizer audioVisualizer;
     private AudioVisualizerView visualizerView;
     private boolean isVisualizerShowing = false;
-    private int currentAlbumColor = 0xFFFFFFFF; // 스펙트럼 바의 색상
+    public int currentAlbumColor = 0xFFFFFFFF; // 스펙트럼 바의 색상
     private static final int STATE_MENU = 1;
     private static final int STATE_BROWSER = 2;
     private static final int STATE_PLAYER = 3;
@@ -162,7 +162,7 @@ public class MainActivity extends Activity {
     private java.util.Set<String> favoritePaths = new java.util.HashSet<>();
     private TextView tvPlayerFavoriteStatus;
 
-    private int consecutiveErrorCount = 0;
+    public int consecutiveErrorCount = 0;
     // 🚀 [추가] 스캔 진행률 표시용 변수들
     private ProgressBar pbLoadingProgress;
     private TextView tvLoadingProgress;
@@ -189,10 +189,11 @@ public class MainActivity extends Activity {
     private TextView tvStatusClock, tvStatusBattery;
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
 
-    private TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
-    private TextView tvPlayerTrackCount;
+    public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
+    public TextView tvPlayerTrackCount;
     private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 텍스트뷰에서 이미지뷰로 변경!
-    private ProgressBar playerProgress, volumeProgress, pbBrightness, pbStorage;
+    public ProgressBar playerProgress;
+    private ProgressBar volumeProgress, pbBrightness, pbStorage;
     private TextView tvBrightnessVal, tvStorageDetails;
     // 💡 [수정] 수동 APP_VERSION 변수는 지우고 서버 폴더 주소만 적습니다.
 
@@ -200,7 +201,7 @@ public class MainActivity extends Activity {
     private Button btnServerToggle;
     // 🚀 [추가] 화면 전체를 덮는 고급 로딩 인디케이터 오버레이
     private LinearLayout layoutLoadingOverlay;
-    private ImageView ivMenuPreview, ivAlbumArt, ivPlayerBgBlur, ivPauseOverlay;
+    public ImageView ivMenuPreview, ivAlbumArt, ivPlayerBgBlur, ivPauseOverlay;
 
     private Button btnNowPlaying, btnPlay, btnSettings, btnBluetooth, btnRadio;
     private Button btnScanBt, btnScanWifi;
@@ -227,12 +228,12 @@ public class MainActivity extends Activity {
     private AudioManager audioManager;
     private File rootFolder = new File("/storage/sdcard0/Music");
     private File currentFolder = rootFolder;
-    private List<File> originalPlaylist = new ArrayList<File>();
-    private List<File> currentPlaylist = new ArrayList<File>();
-    private int currentIndex = 0;
-    private boolean isPausedByHand = true;
+    public List<File> originalPlaylist = new ArrayList<File>();
+    public List<File> currentPlaylist = new ArrayList<File>();
+    public int currentIndex = 0;
+    public boolean isPausedByHand = true;
     private float currentClockSize = 48f;
-    private java.io.FileInputStream currentFileInputStream = null;
+    public java.io.FileInputStream currentFileInputStream = null;
     private TextView tvMenuPreviewTitle, tvMenuPreviewArtist;
     public SharedPreferences prefs;
     private boolean isShuffleMode = false;
@@ -242,7 +243,7 @@ public class MainActivity extends Activity {
     private boolean isPickingBackground = false;
 
     // 💡 마지막으로 재생된 앨범 아트를 기억하는 변수
-    private byte[] lastAlbumArtBytes = null;
+    public byte[] lastAlbumArtBytes = null;
     // 💡 이퀄라이저 관련 변수 추가
     public Equalizer equalizer;
     private List<String> eqPresetNames = new ArrayList<String>();
@@ -725,19 +726,19 @@ public class MainActivity extends Activity {
                             }
                             // ⏮ 이전 곡 버튼
                             if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                                prevTrack();
+                                com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
                                 clickFeedback();
                                 return true;
                             }
                             // ⏭ 다음 곡 버튼
                             if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                                nextTrack();
+                                com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
                                 clickFeedback();
                                 return true;
                             }
                             // ⏯ 재생/일시정지 버튼
                             if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                                playOrPauseMusic();
+                                com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
                                 clickFeedback();
                                 return true;
                             }
@@ -1772,7 +1773,7 @@ public class MainActivity extends Activity {
 
     // 💡 메인 화면 배경 자동 업데이트 (고화질 가우시안 블러 적용)
     // 💡 [수정] 메인 화면 배경 자동 업데이트 (커스텀 배경 우선 & 블러 제거)
-    private void updateMainMenuBackground() {
+    public void updateMainMenuBackground() {
         try {
             String savedBgPath = prefs.getString("bg_path", null);
 
@@ -1912,7 +1913,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void changeScreen(int state) {
+    public void changeScreen(int state) {
 
         int safeFocusIndex = lastSettingsFocusIndex;
         currentScreenState = state;
@@ -3984,7 +3985,10 @@ public class MainActivity extends Activity {
                                         Toast.makeText(MainActivity.this, "No audio files found in subfolders.", Toast.LENGTH_SHORT).show();
                                     } else {
                                         Toast.makeText(MainActivity.this, "Loaded " + allAudioInFolder.size() + " songs!", Toast.LENGTH_SHORT).show();
-                                        playTrackList(allAudioInFolder, 0); // 0번 곡부터 시원하게 재생!
+                                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(allAudioInFolder, 0); // 0번 곡부터 시원하게 재생!
+
+                                        // 🚀 [해결] 전체 재생 후 플레이어 화면으로 자동 전환!
+                                        changeScreen(STATE_PLAYER);
                                     }
                                 }
                             });
@@ -4049,7 +4053,10 @@ public class MainActivity extends Activity {
                     @Override
                     public void onClick(View v) {
                         clickFeedback();
-                        setupFolderPlaylist(audio);
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().setupFolderPlaylist(audio, currentFolder);
+
+                        // 🚀 [해결] 폴더에서 개별 노래 재생 시 플레이어 화면으로 자동 전환!
+                        changeScreen(STATE_PLAYER);
                     }
                 });
                 containerBrowserItems.addView(b);
@@ -4808,387 +4815,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    public void playTrackList(List<File> playlist, int startIndex) {
-        originalPlaylist.clear();
-        originalPlaylist.addAll(playlist);
-        currentPlaylist.clear();
-        currentPlaylist.addAll(playlist);
-
-        if (!playlist.isEmpty()) {
-            File currentSong = originalPlaylist.get(startIndex);
-            if (isShuffleMode) {
-                java.util.Collections.shuffle(currentPlaylist);
-                currentIndex = currentPlaylist.indexOf(currentSong);
-                if (currentIndex == -1)
-                    currentIndex = 0;
-            } else {
-                currentIndex = startIndex;
-            }
-        } else {
-            currentIndex = 0;
-        }
-
-        prepareMusicTrack(currentIndex);
-        try {
-            if (mediaPlayer != null) {
-                mediaPlayer.start();
-                isPausedByHand = false;
-
-            }
-        } catch (Exception e) {
-        }
-        updatePlayerUI();
-        changeScreen(STATE_PLAYER);
-    }
-
-    // 💡 2. 기존 폴더 방식의 플레이리스트 생성기 (playTrackList를 부르도록 개조됨)
-    private void setupFolderPlaylist(File selectedFile) {
-        List<File> list = new ArrayList<>();
-        File[] files = currentFolder.listFiles();
-        int matchIndex = 0;
-        if (files != null) {
-            for (File f : files) {
-                if (isAudioFile(f)) {
-                    list.add(f);
-                    if (f.getAbsolutePath().equals(selectedFile.getAbsolutePath()))
-                        matchIndex = list.size() - 1;
-                }
-            }
-        }
-        playTrackList(list, matchIndex);
-    }
-
-    private void prepareMusicTrack(int index) {
-        if (currentPlaylist.isEmpty())
-            return;
-        final File track = currentPlaylist.get(index);
-        lastAlbumArtBytes = null;
-        currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-        // 🚀 [추가된 부분] 손상된 파일 방어막: 파일이 없거나 용량이 1KB(1024 bytes) 미만인 껍데기 파일일 경우
-        // 🚀 [추가된 부분] 손상된 파일 방어막: 파일이 없거나 용량이 1KB(1024 bytes) 미만인 껍데기 파일일 경우
-        if (!track.exists() || track.length() < 1024) {
-            tvPlayerTitle.setText("Corrupted File");
-            tvPlayerArtist.setText("Skipping...");
-            ivAlbumArt.setImageResource(R.drawable.default_album);
-
-            consecutiveErrorCount++; // 🚀 에러 카운트 증가!
-
-            if (consecutiveErrorCount >= currentPlaylist.size()) {
-                // 🛑 모든 곡이 실패했으면 멈춥니다.
-                Toast.makeText(this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
-                isPausedByHand = true;
-                updatePlayerUI();
-                consecutiveErrorCount = 0; // 수동 재생을 위해 초기화
-            } else {
-                Toast.makeText(this, "Corrupted file detected. Skipping...", Toast.LENGTH_SHORT).show();
-                new Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() { nextTrack(); }
-                }, 1500);
-            }
-            return;
-        }
-        tvPlayerTitle.setText(track.getName());
-        tvPlayerArtist.setText("Loading...");
-        ivAlbumArt.setImageResource(R.drawable.default_album);
-        ivPlayerBgBlur.setImageResource(0);
-        playerProgress.setProgress(0);
-        tvPlayerTimeCurrent.setText("00:00");
-        tvPlayerTimeTotal.setText("00:00");
-
-        try {
-            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-            java.io.FileInputStream fisMmr = new java.io.FileInputStream(track);
-            mmr.setDataSource(fisMmr.getFD());
-
-            // 1. 파일에서 메타데이터(태그) 추출
-            String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-            String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-            lastAlbumArtBytes = mmr.getEmbeddedPicture();
-
-            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "")
-                    .replace(".m4a", "");
-            File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
-
-            if (prefs.contains("meta_title_" + track.getAbsolutePath())) {
-                t = prefs.getString("meta_title_" + track.getAbsolutePath(), t);
-                a = prefs.getString("meta_artist_" + track.getAbsolutePath(), a);
-            }
-
-            // 🚀 [핵심 판단 로직] 이 파일에 정말 멀쩡한 태그(가수+제목)가 들어있는지 검사합니다.
-            boolean hasValidTags = (t != null && !t.trim().isEmpty() && a != null && !a.trim().isEmpty()
-                    && !a.equalsIgnoreCase("Unknown Artist"));
-
-            // 제목 화면에 표시
-            if (t != null && !t.trim().isEmpty())
-                tvPlayerTitle.setText(t);
-            else
-                tvPlayerTitle.setText(safeFileName);
-
-            // 가수 화면에 표시
-            if (a != null && !a.trim().isEmpty())
-                tvPlayerArtist.setText(a);
-            else
-                tvPlayerArtist.setText("Unknown Artist");
-
-            // 2. 앨범 아트 세팅 및 인터넷 검색
-            if (lastAlbumArtBytes != null) {
-                // 원본 파일에 앨범 아트가 있으면 그대로 사용
-                updateMainMenuBackground();
-                refreshNowPlayingPreview();
-                try {
-                    android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
-                    optsCenter.inSampleSize = 2;
-                    android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory
-                            .decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, optsCenter);
-                    ivAlbumArt.setImageBitmap(bmpCenter);
-                    try {
-                        int centerX = bmpCenter.getWidth() / 2;
-                        int centerY = (int) (bmpCenter.getHeight() * 0.8);
-                        currentAlbumColor = bmpCenter.getPixel(centerX, centerY) | 0xFF000000;
-                    } catch (Exception e) {
-                        currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-                    }
-                    android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
-                    optsBg.inSampleSize = 4;
-                    android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes,
-                            0, lastAlbumArtBytes.length, optsBg);
-                    android.graphics.Bitmap blurredBg = applyGaussianBlur(sourceBg);
-                    ivPlayerBgBlur.setImageBitmap(blurredBg);
-                    if (sourceBg != blurredBg)
-                        sourceBg.recycle();
-                } catch (Throwable e) {
-                }
-
-            } else if (coverFile.exists()) {
-                // 다운받아둔 앨범 아트가 있으면 사용
-                applyCachedCoverArt(coverFile.getAbsolutePath());
-
-            } else {
-
-                ivAlbumArt.setImageResource(R.drawable.default_album);
-                currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-                ivPlayerBgBlur.setImageResource(0); // 뒷배경 블러 비우기
-                updateMainMenuBackground();
-                refreshNowPlayingPreview();
-                // 없으면 인터넷에서 검색 출동!
-                if (isAutoFetchEnabled) {
-                    android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext()
-                            .getSystemService(Context.WIFI_SERVICE);
-                    if (wm != null && wm.isWifiEnabled() && wm.getConnectionInfo().getNetworkId() != -1) {
-
-                        String searchQuery = "";
-                        // 🚀 [스마트 쿼리 생성] 멀쩡한 태그가 있다면 그걸 합쳐서(가수+제목) 무조건 100% 일치하는 곡을 찾습니다!
-                        if (hasValidTags) {
-                            searchQuery = a + " " + t;
-                        } else {
-                            searchQuery = safeFileName.replace("-", " ").replace("_", " ");
-                        }
-
-                        // 태그가 있다는 사실과 기존 태그 내용을 같이 넘겨서, 정보가 덮어씌워지지 않게 막습니다.
-                        fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
-                    }
-                }
-            }
-
-            fisMmr.close();
-            mmr.release();
-        } catch (Throwable t) {
-        }
-
-        try {
-            // 🚀 [가장 우아하고 근본적인 해결책]
-            // 1. 플레이어를 리셋하기 전에 현재 사용 중인 '오디오 회선 번호(Session ID)'를 기억해 둡니다.
-            int previousSessionId = 0;
-            if (mediaPlayer != null) {
-                try {
-                    previousSessionId = mediaPlayer.getAudioSessionId();
-                } catch (Exception e) {
-                }
-            }
-
-            // 🚀 [추가] 시각화 엔진(Visualizer)은 안드로이드 내부 버그로 인해 살려둔 채로 3곡 이상 넘기면
-            // 메모리가 터져서 시스템을 다운시켜버립니다(3곡 프리징의 원인!).
-            // 따라서 곡이 바뀔 때는 반드시 '완전히 파괴(release)' 해 주어야 합니다.
-            if (audioVisualizer != null) {
-                try {
-                    audioVisualizer.setEnabled(false);
-                    audioVisualizer.release(); // 🚀 숨통을 완전히 끊어버립니다!
-                    audioVisualizer = null;
-                } catch (Exception e) {
-                }
-            }
-
-            if (mediaPlayer == null) {
-                mediaPlayer = new MediaPlayer();
-            } else {
-                mediaPlayer.reset();
-            }
-
-            // 2. 리셋된 플레이어에 방금 기억해둔 회선 번호를 다시 연결해 줍니다!
-            // 이렇게 하면 이퀄라이저가 유지한 회선에 다시 탑승하게 되어, 볼륨이 리셋되는 버그가 원천 차단됩니다.
-            if (previousSessionId != 0) {
-                try {
-                    mediaPlayer.setAudioSessionId(previousSessionId);
-                } catch (Exception e) {
-                }
-            }
-
-            // 🚀 [버그 수정] 권한 누락으로 인해 음악 재생이 통째로 취소되는 것을 막는 방어막!
-            try {
-                mediaPlayer.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
-            } catch (Exception e) {
-            }
-            mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
-
-            // (✅ 이걸로 덮어쓰기!)
-            mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-                @Override
-                public boolean onError(MediaPlayer mp, int what, int extra) {
-                    consecutiveErrorCount++; // 🚀 에러 카운트 1 누적!
-
-                    String reason = "Unknown System Error";
-                    if (extra == -1004) reason = "File I/O Error";
-                    else if (extra == -1007) reason = "Malformed File";
-                    else if (extra == -1010) reason = "Unsupported Codec";
-                    else if (extra == -110) reason = "Timeout Error";
-
-                    final String finalMsg = "Playback Error: " + reason;
-
-                    // 🚀 밀림 방지를 위해 팝업 길이를 SHORT로 변경
-                    Toast.makeText(MainActivity.this, "🚨 " + finalMsg, Toast.LENGTH_SHORT).show();
-
-                    try {
-                        java.io.File log = new java.io.File("/storage/sdcard0/y1_audio_error.txt");
-                        java.io.FileOutputStream fos = new java.io.FileOutputStream(log, true);
-                        fos.write((new java.util.Date().toString() + " - " + finalMsg + " File: " + track.getName() + "\n").getBytes());
-                        fos.close();
-                    } catch (Exception e) {}
-
-                    // 🛑 에러가 멈추지 않고 곡 수만큼 쌓이면 스킵을 멈추고 재생 상태를 정지(Pause)로 바꿉니다!
-                    if (consecutiveErrorCount >= currentPlaylist.size()) {
-                        Toast.makeText(MainActivity.this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
-                        isPausedByHand = true;
-                        updatePlayerUI();
-                        consecutiveErrorCount = 0; // 초기화
-                    } else {
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() { nextTrack(); }
-                        }, 2000);
-                    }
-
-                    return true;
-                }
-            });
-            if (currentFileInputStream != null) {
-                try {
-                    currentFileInputStream.close();
-                } catch (Exception e) {
-                }
-            }
-            currentFileInputStream = new java.io.FileInputStream(track);
-
-            mediaPlayer.setDataSource(currentFileInputStream.getFD());
-            mediaPlayer.prepare();
-            consecutiveErrorCount = 0;
-            setupVisualizer();
-            // 🚀 [근본적 해결] 오디오 효과 파이프라인(EQ, Bass, Virtualizer) 체인 장전
-            try {
-                int sessionId = mediaPlayer.getAudioSessionId();
-
-                // 🚀 [에러 해결] 이펙터 자체에는 번호를 묻는 기능이 없으므로, 우리가 기억해 둔 변수(currentAudioSessionId)와 비교합니다!
-                if (equalizer == null || currentAudioSessionId != sessionId) {
-                    if (equalizer != null) equalizer.release();
-                    equalizer = new Equalizer(0, sessionId);
-                    equalizer.setEnabled(true);
-                }
-                if (bassBoost == null || currentAudioSessionId != sessionId) {
-                    if (bassBoost != null) bassBoost.release();
-                    bassBoost = new android.media.audiofx.BassBoost(0, sessionId);
-                    bassBoost.setEnabled(true);
-                }
-                if (virtualizer == null || currentAudioSessionId != sessionId) {
-                    if (virtualizer != null) virtualizer.release();
-                    virtualizer = new android.media.audiofx.Virtualizer(0, sessionId);
-                    virtualizer.setEnabled(true);
-                }
-
-                // 🚀 장전이 무사히 끝났다면, 다음 검사를 위해 방금 연결한 회선 번호를 뇌리에 기억(저장)합니다!
-                currentAudioSessionId = sessionId;
-
-                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
-                com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            tvPlayerTimeTotal.setText(formatTime(mediaPlayer.getDuration()));
-            String currentTrackNum = String.format(Locale.US, "%02d", index + 1);
-            String totalTrackNum = String.format(Locale.US, "%02d", currentPlaylist.size());
-            tvPlayerTrackCount.setText(currentTrackNum + " / " + totalTrackNum);
-
-            mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-                @Override
-                public void onCompletion(MediaPlayer mp) {
-                    try {
-                        if (repeatMode == 1) { // Repeat One
-                            mediaPlayer.seekTo(0);
-                            mediaPlayer.start();
-                        } else if (repeatMode == 2) { // Repeat All
-                            nextTrack();
-                        } else { // Repeat Off
-                            if (currentIndex < currentPlaylist.size() - 1) {
-                                nextTrack();
-                            } else {
-                                // Reached the end, stop playback
-                                currentIndex = 0;
-                                prepareMusicTrack(currentIndex);
-                                isPausedByHand = true;
-                                updatePlayerUI();
-                            }
-                        }
-                    } catch (Exception e) {
-                    }
-                }
-            });
-            // (❌ 기존 코드)
-            // } catch (Throwable t) {
-            //     tvPlayerTitle.setText("Load Failed: " + track.getName());
-            // }
-
-            // (✅ 이걸로 덮어쓰기!)
-        } catch (Throwable e) {
-            consecutiveErrorCount++; // 🚀 에러 카운트 1 누적!
-
-            String failReason = "Unknown Error";
-            if (e instanceof OutOfMemoryError) failReason = "Album Art is too huge!";
-            else if (e instanceof java.io.FileNotFoundException) failReason = "File not found";
-            else if (e instanceof java.io.IOException) failReason = "Broken file or fake extension";
-            else if (e instanceof IllegalArgumentException) failReason = "Unsupported high-res format";
-            else failReason = e.getClass().getSimpleName();
-
-            tvPlayerTitle.setText("Load Failed ❌");
-            tvPlayerArtist.setText(failReason);
-
-            // 🚀 여기도 SHORT로 변경
-            Toast.makeText(MainActivity.this, "🚨 " + failReason, Toast.LENGTH_SHORT).show();
-
-            // 🛑 에러 방어막 가동!
-            if (consecutiveErrorCount >= currentPlaylist.size()) {
-                Toast.makeText(MainActivity.this, "❌ All tracks failed. Playback stopped.", Toast.LENGTH_SHORT).show();
-                isPausedByHand = true;
-                updatePlayerUI();
-                consecutiveErrorCount = 0; // 초기화
-            } else {
-                new Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() { nextTrack(); }
-                }, 2000);
-            }
-        }
-    }
-
     // 💡 [수정] 액자 전체를 숨기도록 개조
     private void toggleVisualizer() {
         if (android.os.Build.VERSION.SDK_INT >= 23) {
@@ -5218,7 +4844,7 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [수정] 오디오 엔진에 빨대를 꽂아 주파수 데이터를 빼오는 함수
-    private void setupVisualizer() {
+    public void setupVisualizer() {
         try {
             // 🚀 [완벽 해결] 매번 새롭게 엔진을 만들어서 장착합니다! (메모리 누수 원천 차단)
             if (audioVisualizer != null) {
@@ -5263,26 +4889,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // private void updatePlayerStatusIndicators() {
-    // try {
-    // if (tvPlayerShuffleStatus != null) {
-    // tvPlayerShuffleStatus.setVisibility(isShuffleMode ? View.VISIBLE :
-    // View.GONE);
-    // }
-    // if (tvPlayerRepeatStatus != null) {
-    // if (repeatMode == 1) {
-    // tvPlayerRepeatStatus.setText("REPEAT ONE");
-    // tvPlayerRepeatStatus.setVisibility(View.VISIBLE);
-    // } else if (repeatMode == 2) {
-    // tvPlayerRepeatStatus.setText("REPEAT ALL");
-    // tvPlayerRepeatStatus.setVisibility(View.VISIBLE);
-    // } else {
-    // tvPlayerRepeatStatus.setVisibility(View.GONE);
-    // }
-    // }
-    // } catch (Exception e) {
-    // }
-    // }
     private void updatePlayerStatusIndicators() {
         try {
             // 1. 셔플 아이콘 세팅
@@ -5335,7 +4941,7 @@ public class MainActivity extends Activity {
 
         updatePlayerStatusIndicators(); // 💖 아이콘 새로고침
     }
-    private void updatePlayerUI() {
+    public void updatePlayerUI() {
         try {
             if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                 ivAlbumArt.setAlpha(1.0f);
@@ -5389,60 +4995,6 @@ public class MainActivity extends Activity {
             }
             updatePlayerStatusIndicators();
         } catch (Exception e) {
-        }
-    }
-    private void playOrPauseMusic() {
-        try {
-            if (mediaPlayer == null || currentPlaylist.isEmpty())
-                return;
-            if (mediaPlayer.isPlaying()) {
-                mediaPlayer.pause();
-                isPausedByHand = true;
-            } else {
-                mediaPlayer.start();
-                isPausedByHand = false;
-
-            }
-            updatePlayerUI();
-        } catch (Throwable e) {
-        }
-    }
-
-    private void nextTrack() {
-        lastTrackChangeTime = System.currentTimeMillis();
-        if (currentPlaylist.isEmpty())
-            return;
-        currentIndex = (currentIndex + 1) % currentPlaylist.size();
-        prepareMusicTrack(currentIndex);
-        if (!isPausedByHand) {
-            try {
-                mediaPlayer.start();
-
-                ;
-
-                updatePlayerUI();
-            } catch (Exception e) {
-            }
-        } else {
-            updatePlayerUI();
-        }
-    }
-
-    private void prevTrack() {
-        lastTrackChangeTime = System.currentTimeMillis();
-        if (currentPlaylist.isEmpty())
-            return;
-        currentIndex = (currentIndex - 1 + currentPlaylist.size()) % currentPlaylist.size();
-        prepareMusicTrack(currentIndex);
-        if (!isPausedByHand) {
-            try {
-                mediaPlayer.start();
-
-                updatePlayerUI();
-            } catch (Exception e) {
-            }
-        } else {
-            updatePlayerUI();
         }
     }
 
@@ -5512,17 +5064,17 @@ public class MainActivity extends Activity {
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                    prevTrack();
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                    nextTrack();
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
                     clickFeedback();
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                    playOrPauseMusic();
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
                     clickFeedback();
                     return true;
                 }
@@ -5540,7 +5092,7 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == KeyEvent.KEYCODE_MEDIA_STOP
                 || keyCode == 86) {
             if (event.getRepeatCount() == 0) {
-                playOrPauseMusic();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
             }
             return true;
         }
@@ -5550,14 +5102,14 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                nextTrack();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
             }
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (event.getRepeatCount() == 0) {
                 clickFeedback();
-                prevTrack();
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
             }
             return true;
         }
@@ -6249,17 +5801,17 @@ public class MainActivity extends Activity {
 
                     // ⏮ 이전 곡 버튼
                     if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
-                        MainActivity.instance.prevTrack();
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
                         MainActivity.instance.clickFeedback();
                     }
                     // ⏭ 다음 곡 버튼
                     else if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
-                        MainActivity.instance.nextTrack();
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
                         MainActivity.instance.clickFeedback();
                     }
                     // ⏯ 재생/일시정지 버튼
                     else if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
-                        MainActivity.instance.playOrPauseMusic();
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().playOrPauseMusic();
                         MainActivity.instance.clickFeedback();
                     }
                     // 🔊 혹시 기기가 휠 조작(21, 22)을 미디어 신호로 보내줄 경우를 대비한 방어 코드
@@ -6276,11 +5828,11 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [수정] 동적 버튼의 꼬리표(Tag)를 읽어 앨범 아트를 똑똑하게 띄워줍니다!
-    private void refreshNowPlayingPreview() {
+    public void refreshNowPlayingPreview() {
         refreshWidgets();
     }
     // 💡 [추가] 1. 인터넷에서 받아온 커버 이미지를 캐시 폴더에서 불러와 화면에 띄우는 함수
-    private void applyCachedCoverArt(String imagePath) {
+    public void applyCachedCoverArt(String imagePath) {
         try {
             // 중앙의 선명한 앨범 아트
             android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
@@ -6323,7 +5875,7 @@ public class MainActivity extends Activity {
     }
 
     // 💡 [수정] 정밀 검색 및 기존 태그(가수/제목) 보호 기능이 추가된 Deezer 스크래핑 엔진
-    private void fetchTrackInfoFromInternet(final File track, final String originalQuery, final boolean hasValidTags,
+    public void fetchTrackInfoFromInternet(final File track, final String originalQuery, final boolean hasValidTags,
             final String origTitle, final String origArtist) {
         // 찌꺼기 텍스트 청소기
         final String cleanQuery = originalQuery
@@ -6526,20 +6078,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [완벽 수정] 60fps 부드러운 애니메이션과 높이 제한이 적용된 와이드 스펙트럼 뷰!
 
-    // 💡 [위젯 전용] 모던하고 깔끔한 가로형 라운드 프로그레스 바(Pill 형태) 배터리 위젯!
-    // 💡 [수정] 속이 꽉 찬 배터리 모양 안에 잔량(숫자)을 직관적으로 그려 넣는 뷰
-
-    // 💡 [추가] 딱 10개의 버튼만 만들어서 수천 곡의 텍스트를 갈아끼우며 재활용하는 마법의 어댑터!
-
-    // =========================================================================
-    // 🚀 [신규 추가] 테마 색상을 자동으로 따라가는 아날로그 시계 위젯
-    // =========================================================================
-
-    // =========================================================================
-    // 🚀 [신규 추가] 중앙에 잔량이 텍스트로 표시되는 원형 배터리 위젯
-    // =========================================================================
 
     // 🚀 [신규 엔진] 앱 최초 실행 시, APK에 내장된 테마 ZIP 파일들을 기기에 자동 설치하는 함수
     private void installBundledThemes() {
