@@ -1,32 +1,49 @@
 package com.themoon.y1.views;
 
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.view.View;
 
 public class BatteryIconView extends View {
-    private android.graphics.Paint shellPaint, textPaint;
     private int level = 100;
     private boolean isCharging = false;
-    private int color = 0xFFFFFFFF; // 기본 바탕색 (보통 흰색)
+    private int color = Color.WHITE;
+
+    private Paint paintFill, paintStroke, paintText;
+    private RectF rectShell, rectFill, rectTerminal;
 
     public BatteryIconView(Context context) {
         super(context);
+        init();
+    }
 
-        // 배터리 바탕을 그리는 붓 (속을 꽉 채우기)
-        shellPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        shellPaint.setStyle(android.graphics.Paint.Style.FILL);
+    private void init() {
+        // 내부 알맹이용 페인트
+        paintFill = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        // 숫자를 그리는 붓 (검은색, 가운데 정렬, 굵게)
-        textPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        textPaint.setColor(0xFF000000); // 🚀 검은색 글씨!
-        textPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
-        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        // 바깥 껍데기(테두리)용 페인트
+        paintStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintStroke.setStyle(Paint.Style.STROKE);
+        paintStroke.setStrokeWidth(3f); // 테두리 두께
+
+        // 중앙 숫자용 페인트
+        paintText = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paintText.setTextAlign(Paint.Align.CENTER);
+        paintText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+
+        rectShell = new RectF();
+        rectFill = new RectF();
+        rectTerminal = new RectF();
     }
 
     public void setBatteryLevel(int level, boolean isCharging) {
         this.level = level;
         this.isCharging = isCharging;
-        invalidate(); // 화면 새로고침
+        invalidate(); // 값이 바뀌면 즉시 화면을 다시 그립니다!
     }
 
     public void setColor(int color) {
@@ -35,45 +52,59 @@ public class BatteryIconView extends View {
     }
 
     @Override
-    protected void onDraw(android.graphics.Canvas canvas) {
+    protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        int width = getWidth();
-        int height = getHeight();
 
-        float pad = 2f;
-        float terminalWidth = width * 0.08f;
-        float shellWidth = width - terminalWidth - pad * 2;
-        float shellHeight = height - pad * 2;
+        int w = getWidth();
+        int h = getHeight();
+        if (w == 0 || h == 0) return;
 
-        // 🚀 스마트 컬러: 충전 중이면 초록색 바탕, 15% 이하면 빨간색 바탕, 평소엔 테마색(보통 흰색)
-        if (isCharging) {
-            shellPaint.setColor(0xFF44FF44);
-        } else if (level <= 15) {
-            shellPaint.setColor(0xFFFF4444);
-        } else {
-            shellPaint.setColor(color);
+        float terminalWidth = w * 0.08f; // 우측 볼록 튀어나온 단자 길이
+        float shellWidth = w - terminalWidth;
+
+        // 🚀 1. 상태별 색상 자동 전환 (충전 중: 초록 / 20% 이하: 빨강 / 평소: 테마 지정색)
+        int currentColor = color;
+        if (isCharging) currentColor = Color.parseColor("#4CAF50");
+        else if (level <= 20) currentColor = Color.parseColor("#F44336");
+
+        paintStroke.setColor(currentColor);
+        paintFill.setColor(currentColor);
+
+        // 🚀 2. 배터리 바깥 껍데기 그리기
+        rectShell.set(2f, 2f, shellWidth - 2f, h - 2f);
+        canvas.drawRoundRect(rectShell, 5f, 5f, paintStroke);
+
+        // 🚀 3. 우측 (+)극 단자 그리기
+        float terminalHeight = h * 0.4f;
+        rectTerminal.set(shellWidth, (h - terminalHeight) / 2f, w - 2f, (h + terminalHeight) / 2f);
+        canvas.drawRoundRect(rectTerminal, 2f, 2f, paintFill);
+
+        // 🚀 4. 남은 용량만큼 안쪽 알맹이 차오르게 하기!
+        float padding = 6f; // 테두리와 알맹이 사이의 숨통(여백)
+        float maxFillWidth = shellWidth - (padding * 2f); // 100%일 때의 가로 길이
+        float currentFillWidth = maxFillWidth * (level / 100f); // 현재 퍼센트만큼 길이 자르기
+
+        // 잔량이 0보다 클 때만 알맹이를 그립니다.
+        if (currentFillWidth > 0) {
+            rectFill.set(padding, padding, padding + currentFillWidth, h - padding);
+            canvas.drawRoundRect(rectFill, 2f, 2f, paintFill);
         }
 
-        // 1. 꽉 찬 배터리 몸통 그리기
-        android.graphics.RectF shell = new android.graphics.RectF(pad, pad, pad + shellWidth, pad + shellHeight);
-        canvas.drawRoundRect(shell, 4f, 4f, shellPaint);
+        // 🚀 5. 배터리 정중앙에 잔량(숫자) 뚫어주기!
+        String text = isCharging ? "⚡" : String.valueOf(level);
 
-        // 2. 배터리 오른쪽 튀어나온 꼭지 그리기
-        float terminalHeight = shellHeight * 0.4f;
-        float terminalTop = pad + (shellHeight - terminalHeight) / 2;
-        android.graphics.RectF terminal = new android.graphics.RectF(shell.right, terminalTop,
-                shell.right + terminalWidth, terminalTop + terminalHeight);
-        canvas.drawRoundRect(terminal, 2f, 2f, shellPaint);
-
-        // 3. 배터리 몸통 정중앙에 숫자(잔량) 새기기
-        textPaint.setTextSize(shellHeight * 0.95f); // 텍스트 크기를 배터리 높이에 꽉 차게 조절
-
-        // 텍스트를 위아래 정중앙에 오도록 계산하는 공식
-        float textY = shell.centerY() - ((textPaint.descent() + textPaint.ascent()) / 2);
-        String levelText = String.valueOf(level);
-
-        // 검은색 숫자를 배터리 몸통 한가운데에 찍어냅니다.
-        canvas.drawText(levelText, shell.centerX(), textY, textPaint);
+        // [디테일] 알맹이가 절반 이상 차올라서 글씨를 덮어버리면, 글씨를 까만색으로 '반전'시켜서 잘 보이게 만듭니다!
+//        if (level > 45 && !isCharging) {
+//            paintText.setColor(Color.BLACK);
+//        } else {
+//            paintText.setColor(currentColor);
+//        }
+//
+//        paintText.setTextSize(h * 0.55f); // 글자 크기를 배터리 높이에 비례하게 맞춤
+//        Paint.FontMetrics fm = paintText.getFontMetrics();
+//        float textY = (h - fm.ascent - fm.descent) / 2f;
+//
+//        // 글씨 위치를 배터리 몸통(shellWidth)의 정중앙에 꽂아 넣습니다.
+//        canvas.drawText(text, shellWidth / 2f, textY, paintText);
     }
 }
-

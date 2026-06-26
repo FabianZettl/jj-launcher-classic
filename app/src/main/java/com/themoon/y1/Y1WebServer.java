@@ -93,7 +93,7 @@ public class Y1WebServer extends Thread {
                     }
                 }
 
-                // 1️⃣ 화면 UI 전송 (프론트엔드 - 인라인 플레이어 + 🚀 텍스트 에디터 탑재)
+                // 1️⃣ 화면 UI 전송 (프론트엔드 - 인라인 플레이어 + 🚀 텍스트 에디터 탑재 + 🚀 드래그 앤 드롭 지원)
                 if (method.equals("GET") && path.equals("/")) {
                     String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
                             "<title>Y1 File Manager</title><style>" +
@@ -114,16 +114,20 @@ public class Y1WebServer extends Thread {
                             "#audioBox{position:fixed; bottom:0; left:0; right:0; background:#222; border-top:2px solid #00ffff; padding:15px; display:none; z-index:100;} " +
                             "audio{width:100%; max-width:800px; margin:0 auto; display:block; outline:none;} " +
 
-                            // 🚀 텍스트 에디터 CSS
+                            // 🚀 [추가] 드래그 앤 드롭 시 박스 테두리와 배경색이 예쁘게 변하는 애니메이션
+                            "#uploadBox{transition:0.3s; border:2px solid transparent;} " +
+                            "#uploadBox.dragover{background:#333; border:2px dashed #00ffff;} " +
+
                             "#editorBox{position:fixed; top:0; left:0; width:100%; height:100%; background:#111; z-index:200; padding:20px; box-sizing:border-box; display:none;} " +
                             "#editorArea{width:100%; height:calc(100% - 120px); background:#222; color:#44ff44; font-family:monospace; font-size:14px; border:1px solid #444; padding:10px; resize:none;} " +
                             "#editorTitle{color:#00ffff; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}" +
                             "</style></head><body>" +
                             "<h2>📁 Y1 Wireless File Manager</h2>" +
 
-                            // 업로드/폴더생성 박스
-                            "<div class='box'>" +
+                            // 업로드/폴더생성 박스 (🚀 ID 부여 및 안내 문구 추가)
+                            "<div class='box' id='uploadBox'>" +
                             "<div style='font-size:18px; margin-bottom:10px;'>📍 <span id='currentPathText'>/</span></div>" +
+                            "<div style='text-align:center; color:#00ffff; font-size:13px; margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;'>💡 <b>Drag & Drop</b> files anywhere in this box to upload instantly!</div>" +
                             "<div style='display:flex; gap:5px; margin-bottom:10px;'>" +
                             "<input type='text' id='fName' placeholder='New folder name...'>" +
                             "<button onclick='createFolder()'>Create</button></div>" +
@@ -142,7 +146,7 @@ public class Y1WebServer extends Thread {
                             "<audio id='audioPlayer' controls controlsList='nodownload'></audio>" +
                             "</div>" +
 
-                            // 🚀 전체화면 텍스트 에디터 (JSON 수정용)
+                            // 전체화면 텍스트 에디터
                             "<div id='editorBox'>" +
                             "<h3 id='editorTitle'>📝 Edit File</h3>" +
                             "<textarea id='editorArea' spellcheck='false' wrap='off'></textarea>" +
@@ -176,10 +180,7 @@ public class Y1WebServer extends Thread {
                             "                      isText ? `onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\"` : " +
                             "                      isImg ? `onclick=\"window.open('/api/file?path=${safePath}', '_blank')\"` : '';" +
 
-                            // 🚀 JSON/TXT 파일이면 Edit(수정) 버튼을 달아줍니다!
                             "      let editBtn = isText ? `<button class='action' style='background:#ffa500;' onclick=\"openEditor(event, '${safePath}', '${f.name.replace(/'/g, \"\\\\'\")}')\">Edit</button>` : '';" +
-
-                            // 🚀 [수정 3] Edit 버튼과 Delete 버튼 사이에 Rename 버튼 추가!
                             "      let renameBtn = `<button class='action' style='background:#2196F3;' onclick=\"renameItem(event, '${f.name.replace(/'/g, \"\\\\'\")}')\">Rename</button>`;" +
 
                             "      html += `<div class='item' ${rowAction}>` +" +
@@ -202,7 +203,6 @@ public class Y1WebServer extends Thread {
                             "  player.play();" +
                             "}" +
 
-                            // 🚀 에디터 관련 로직
                             "let editingPath = '';" +
                             "function openEditor(e, path, name) {" +
                             "  if(e) e.stopPropagation();" +
@@ -226,7 +226,6 @@ public class Y1WebServer extends Thread {
                             "  var n = document.getElementById('fName').value; if(!n) return;" +
                             "  fetch('/api/create?dir=' + encodeURIComponent(currentPath) + '&name=' + encodeURIComponent(n), {method:'POST'}).then(()=>{ document.getElementById('fName').value=''; loadList();});" +
                             "}" +
-                            // 🚀 [수정 4] 팝업창을 띄워 새 이름을 받고 서버로 전송하는 자바스크립트 함수
                             "function renameItem(e, oldName) { " +
                             "  e.stopPropagation();" +
                             "  var newName = prompt('Enter new name for: ' + oldName, oldName);" +
@@ -239,8 +238,9 @@ public class Y1WebServer extends Thread {
                             "  fetch('/api/delete?path=' + encodeURIComponent(currentPath ? currentPath + '/' + name : name), {method:'POST'}).then(()=>loadList());" +
                             "}" +
 
-                            "async function uploadAll() { " +
-                            "  var files = document.getElementById('fInput').files; var st = document.getElementById('status'); " +
+                            // 🚀 [핵심 개조] 파라미터로 파일을 던져주면 그 파일들을 업로드하고, 안 던져주면 기존 버튼 방식을 씁니다.
+                            "async function uploadAll(droppedFiles) { " +
+                            "  var files = droppedFiles || document.getElementById('fInput').files; var st = document.getElementById('status'); " +
                             "  if(files.length === 0) return;" +
                             "  for(var i=0; i<files.length; i++) { " +
                             "    st.innerText = 'Uploading: ' + files[i].name + ' (' + (i+1) + '/' + files.length + ')'; " +
@@ -248,12 +248,67 @@ public class Y1WebServer extends Thread {
                             "  } " +
                             "  st.innerText = '✅ Upload Complete!'; document.getElementById('fInput').value=''; loadList();" +
                             "}" +
+
+                            // 🚀 [폴더 지원 엔진] 드래그한 폴더 내부를 스캔하여 구조를 파악하는 업그레이드 함수
+                            "async function uploadFolderItems(fileList) { " +
+                            "  var st = document.getElementById('status'); " +
+                            "  for(var i=0; i<fileList.length; i++) { " +
+                            "    let item = fileList[i]; " +
+                            "    let displayPath = item.path ? item.path + item.file.name : item.file.name; " +
+                            "    st.innerText = 'Uploading: ' + displayPath + ' (' + (i+1) + '/' + fileList.length + ')'; " +
+                            "    let targetDir = currentPath; " +
+                            "    if(item.path) { " +
+                            "       let subDir = item.path.replace(/\\/$/, ''); " + // 끝에 붙은 슬래시 제거
+                            "       targetDir = currentPath ? currentPath + '/' + subDir : subDir; " +
+                            "    } " +
+                            "    await fetch('/api/upload?dir=' + encodeURIComponent(targetDir) + '&name=' + encodeURIComponent(item.file.name), {method:'POST', body:item.file}); " +
+                            "  } " +
+                            "  st.innerText = '✅ Folder Upload Complete!'; loadList();" +
+                            "}" +
+
+                            // 🚀 [드래그 앤 드롭 전용 이벤트 리스너] 폴더와 파일을 완벽하게 구분해서 스캔합니다!
+                            "let dropZone = document.getElementById('uploadBox');" +
+                            "dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });" +
+                            "dropZone.addEventListener('dragleave', function(e) { e.preventDefault(); dropZone.classList.remove('dragover'); });" +
+                            "dropZone.addEventListener('drop', function(e) { " +
+                            "  e.preventDefault(); dropZone.classList.remove('dragover'); " +
+                            "  let items = e.dataTransfer.items; " +
+                            "  if(!items) { if(e.dataTransfer.files.length > 0) uploadAll(e.dataTransfer.files); return; } " + // 구형 브라우저 방어막
+                            "  " +
+                            "  document.getElementById('status').innerText = 'Scanning dropped items...'; " +
+                            "  let filesToUpload = []; " +
+                            "  let pending = 0; " +
+                            "  " +
+                            "  function scanEntry(item, path) { " +
+                            "    if(item.isFile) { " +
+                            "      pending++; " +
+                            "      item.file(f => { filesToUpload.push({file: f, path: path}); pending--; checkDone(); }); " +
+                            "    } else if(item.isDirectory) { " +
+                            "      let dirReader = item.createReader(); " +
+                            "      pending++; " +
+                            "      dirReader.readEntries(entries => { " +
+                            "        entries.forEach(entry => scanEntry(entry, path + item.name + '/')); " +
+                            "        pending--; checkDone(); " +
+                            "      }); " +
+                            "    } " +
+                            "  } " +
+                            "  function checkDone() { " +
+                            "    if(pending === 0) { " +
+                            "      if(filesToUpload.length > 0) uploadFolderItems(filesToUpload); " +
+                            "      else document.getElementById('status').innerText = 'No files found.'; " +
+                            "    } " +
+                            "  } " +
+                            "  for(let i=0; i<items.length; i++) { " +
+                            "    let entry = items[i].webkitGetAsEntry(); " +
+                            "    if(entry) scanEntry(entry, ''); " +
+                            "  } " +
+                            "});" +
+
                             "window.onload = loadList;" +
                             "</script></body></html>";
 
                     os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
                 }
-
                 // 2️⃣ [API] 파일 및 폴더 리스트 응답 (JSON 형식)
                 else if (method.equals("GET") && path.startsWith("/api/list")) {
                     String q = path.contains("?") ? path.split("\\?")[1] : "";

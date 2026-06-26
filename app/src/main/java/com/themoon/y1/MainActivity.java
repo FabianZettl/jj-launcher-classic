@@ -192,6 +192,7 @@ public class MainActivity extends Activity {
     private ImageView ivStatusBluetooth, ivStatusWifi, ivStatusHeadphone, ivMainBg;
 
     public TextView tvBrowserPath, tvPlayerTitle, tvPlayerArtist, tvPlayerTimeCurrent, tvPlayerTimeTotal;
+    public TextView tvAudioQualityInfo; // 🚀 [추가] 오디오 스펙 전용 텍스트뷰
     public TextView tvPlayerTrackCount;
     private ImageView ivPlayerShuffleStatus, ivPlayerRepeatStatus; // 💡 텍스트뷰에서 이미지뷰로 변경!
     public ProgressBar playerProgress;
@@ -1025,11 +1026,11 @@ public class MainActivity extends Activity {
         int bIdx = statusParent.indexOfChild(tvStatusBattery);
 
         float density = getResources().getDisplayMetrics().density;
-        // 🚀 [크기 수정] 가로 40dp, 세로 20dp로 1.5배 이상 큼직하게 키웁니다!
+        // 🚀 [크기 폭업] 가로 54dp, 세로 24dp로 훨씬 더 크고 시원하게 키웁니다!
         android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(
-                (int) (40 * density), (int) (20 * density));
+                (int) (54 * density), (int) (24 * density));
         blp.gravity = android.view.Gravity.CENTER_VERTICAL;
-        blp.setMargins((int) (12 * density), 0, (int) (4 * density), 0); // 좌우 간격도 살짝 넓혀줍니다.
+        blp.setMargins((int) (15 * density), 0, (int) (6 * density), 0); // 커진 만큼 마진도 살짝 조정
         statusParent.addView(batteryIconView, bIdx, blp);
         ivStatusBluetooth = findViewById(R.id.iv_status_bluetooth);
         ivStatusWifi = findViewById(R.id.iv_status_wifi);
@@ -1065,6 +1066,34 @@ public class MainActivity extends Activity {
         Button btnWebServer = findViewById(R.id.btn_webserver);
         tvPlayerTitle = findViewById(R.id.tv_player_title);
         tvPlayerArtist = findViewById(R.id.tv_player_artist);
+        // 🚀 [신규 추가] 가수 이름 바로 밑에 '반투명 오디오 스펙 박스'를 꽂아 넣습니다!
+        tvAudioQualityInfo = new TextView(this);
+        tvAudioQualityInfo.setVisibility(View.GONE);
+        tvAudioQualityInfo.setTextSize(14); // 디자인을 해치지 않는 작고 세련된 크기
+        tvAudioQualityInfo.setTextColor(0xaaFFFFFF); // 은은한 흰색
+        tvAudioQualityInfo.setGravity(android.view.Gravity.CENTER);
+        tvAudioQualityInfo.setIncludeFontPadding(false);
+        tvAudioQualityInfo.setPadding(20, 5, 20, 5);
+        tvAudioQualityInfo.setSingleLine(true);
+        tvAudioQualityInfo.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+
+        // 반투명 블랙 둥근 배경 생성
+        android.graphics.drawable.GradientDrawable qualityBg = new android.graphics.drawable.GradientDrawable();
+        qualityBg.setColor(0x55000000); // 26% 불투명도의 검은색 (디자인을 절대 해치지 않음)
+        qualityBg.setCornerRadius(12 * getResources().getDisplayMetrics().density);
+        tvAudioQualityInfo.setBackground(qualityBg);
+
+        android.view.ViewGroup artistParent = (android.view.ViewGroup) tvPlayerArtist.getParent();
+        int artistIndex = artistParent.indexOfChild(tvPlayerArtist);
+
+        android.widget.LinearLayout.LayoutParams qualityLp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        qualityLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        qualityLp.topMargin = (int) (8 * getResources().getDisplayMetrics().density); // 가수 이름과 살짝 띄움
+
+        artistParent.addView(tvAudioQualityInfo, artistIndex + 1, qualityLp);
+        // 🚀 [추가 끝]
         tvPlayerTimeCurrent = findViewById(R.id.tv_player_time_current);
         tvPlayerTimeTotal = findViewById(R.id.tv_player_time_total);
         ivAlbumArt = findViewById(R.id.iv_album_art);
@@ -2590,11 +2619,9 @@ public class MainActivity extends Activity {
         layout.setFocusable(true);
         layout.setPadding(20, 15, 20, 15);
 
-        // 🚀 [세팅창 UI 복구] 여기서도 포커스 색상을 기반으로 은은한 반투명 색상을 만들어 깔아줍니다.
-        int focusColor = ThemeManager.getListButtonFocusedBg();
-        final int faintNormalBg = (focusColor & 0x00FFFFFF) | 0x22000000;
+        // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
+        layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
 
-        layout.setBackground(createButtonBackground(faintNormalBg));
         TextView tvLeft = new TextView(this);
         tvLeft.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
         tvLeft.setText(leftText);
@@ -2634,7 +2661,7 @@ public class MainActivity extends Activity {
                     }
                 } else {
                     // 🚀 포커스가 벗어나면 은은한 배경으로 복귀!
-                    layout.setBackground(createButtonBackground(faintNormalBg));
+                    layout.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     ((TextView) layout.getChildAt(0)).setTextColor(ThemeManager.getTextColorPrimary());
                     TextView rightTv = (TextView) layout.getChildAt(1);
                     String currentText = rightTv.getText().toString();
@@ -2657,11 +2684,9 @@ public class MainActivity extends Activity {
     public Button createListButton(String text) {
         final Button btn = new Button(this);
 
-        // 🚀 [과거 UI 완벽 복구] 테마의 포커스 색상을 훔쳐와서, 투명도를 15% 정도(0x22)로 낮춘 '은은한 배경색'을 자동 생성합니다!
-        int focusColor = ThemeManager.getListButtonFocusedBg();
-        final int faintNormalBg = (focusColor & 0x00FFFFFF) | 0x22000000;
-
-        btn.setBackground(createButtonBackground(faintNormalBg)); // 은은한 배경 적용!
+        // 🚀 [수정 완료] 단색 덮어쓰기(setBackgroundColor)를 삭제하고, 둥글기가 적용된 배경만 입힙니다!
+        btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
+        btn.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
         btn.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
         btn.setSoundEffectsEnabled(false);
         btn.setText(text);
@@ -2677,12 +2702,14 @@ public class MainActivity extends Activity {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
+                    // 🚀 포커스 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
                     btn.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg()));
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     showFastScrollLetter(((Button) v).getText().toString());
+
                 } else {
-                    // 🚀 휠이 빠져나갔을 때도 우리가 만든 은은한 배경으로 복귀시킵니다!
-                    btn.setBackground(createButtonBackground(faintNormalBg));
+                    // 🚀 일반 상태 둥근 배경 적용! (단색 덮어쓰기 제거)
+                    btn.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
                     btn.setTextColor(ThemeManager.getTextColorPrimary());
                 }
             }
@@ -4968,6 +4995,9 @@ public class MainActivity extends Activity {
     }
     public void updatePlayerUI() {
         try {
+            if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
+                updateAudioQualityInfo(currentPlaylist.get(currentIndex));
+            }
             if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                 ivAlbumArt.setAlpha(1.0f);
                 ivPauseOverlay.setVisibility(View.GONE);
@@ -6916,7 +6946,58 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    // 🚀 [신규 엔진] 파일 확장자와 메타데이터를 뜯어내어 무손실 여부와 비트레이트(kbps)를 추출합니다.
+    private void updateAudioQualityInfo(File audioFile) {
+        if (tvAudioQualityInfo == null || audioFile == null || !audioFile.exists()) {
+            if (tvAudioQualityInfo != null) tvAudioQualityInfo.setVisibility(View.GONE);
+            return;
+        }
 
+        // 1. 파일 확장자로 포맷 및 무손실(Lossless) 판별
+        String ext = "";
+        String name = audioFile.getName().toLowerCase();
+        int dotIdx = name.lastIndexOf(".");
+        if (dotIdx > 0) ext = name.substring(dotIdx + 1).toUpperCase();
+
+        boolean isLossless = ext.equals("FLAC") || ext.equals("WAV") || ext.equals("APE") || ext.equals("ALAC");
+        String formatTag = isLossless ? "LOSSLESS" : "LOSSY";
+        if (ext.equals("WAV")) formatTag = "UNCOMPRESSED"; // WAV는 무손실을 넘어선 무압축!
+
+        // 2. 비트레이트(kbps) 추출 시도
+        String bitrateStr = "";
+        try {
+            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+            mmr.setDataSource(audioFile.getAbsolutePath());
+            String br = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            if (br != null && !br.isEmpty()) {
+                int bps = Integer.parseInt(br);
+                bitrateStr = (bps / 1000) + " kbps";
+            }
+            mmr.release();
+        } catch (Exception e) {}
+
+        // 3. 젤리빈 환경에서 메타데이터 추출 실패 시, 파일 용량과 재생 시간으로 직접 계산! (Fallback)
+        if (bitrateStr.isEmpty() && mediaPlayer != null) {
+            try {
+                int durationMs = mediaPlayer.getDuration();
+                if (durationMs > 0) {
+                    long fileSize = audioFile.length();
+                    // (파일 바이트 수 * 8비트 * 1000) / 밀리초 = kbps
+                    int kbps = (int) ((fileSize * 8000) / durationMs);
+                    bitrateStr = kbps + " kbps";
+                }
+            } catch (Exception e) {}
+        }
+
+        // 4. 글씨 조립 후 화면에 쏘기 (예: FLAC • LOSSLESS • 920 kbps)
+        String info = ext + " • " + formatTag;
+        if (!bitrateStr.isEmpty()) {
+            info += " • " + bitrateStr;
+        }
+
+        tvAudioQualityInfo.setText(info);
+        tvAudioQualityInfo.setVisibility(View.VISIBLE);
+    }
 
 }
 
