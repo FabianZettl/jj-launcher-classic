@@ -42,7 +42,17 @@ public class SongListAdapter extends BaseAdapter {
         }
 
         final SongItem song = items.get(position);
-        btn.setText("🎵 " + song.title);
+        String prefixIcon = MainActivity.instance.isAudiobookLibraryMode ? "🎧 " : "🎵 ";
+        btn.setText(prefixIcon + song.title);
+
+        // 🚀 [추가] 오디오북 모드라면 MainActivity의 함수를 빌려와 프로그레스 바를 그립니다!
+        if (MainActivity.instance.isAudiobookLibraryMode) {
+            int pos = MainActivity.instance.prefs.getInt("book_pos_" + song.file.getAbsolutePath(), 0);
+            int dur = MainActivity.instance.prefs.getInt("book_dur_" + song.file.getAbsolutePath(), 0);
+            if (pos > 0 && dur > 0) {
+                MainActivity.instance.setupAudiobookProgress(btn, pos, dur); // 💡 새 엔진 호출로 교체!
+            }
+        }
 
         btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override

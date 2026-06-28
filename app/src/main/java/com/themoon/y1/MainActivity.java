@@ -178,9 +178,13 @@ public class MainActivity extends Activity {
     private boolean isScreenOffControlEnabled = false;
     public boolean isAutoFetchEnabled = true; // 🚀 [추가] 인터넷 자동 검색 스위치 기본값
     public static List<SongItem> customLibrary = new ArrayList<>();
+    public static List<SongItem> audiobookLibrary = new ArrayList<>(); // 🚀 오디오북 전용 바구니 신설!
+
+    public boolean isAudiobookLibraryMode = false; // 🚀 현재 무슨 모드인지 기억하는 스위치
+    public File audiobookRootFolder = new File("/storage/sdcard0/Audiobooks"); // 🚀 오디오북 전용 루트 폴더
+
     private boolean isCustomScanning = false;
     public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
-
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -1322,8 +1326,9 @@ public class MainActivity extends Activity {
             btnNowPlaying.requestFocus(); // 평소 앱을 켤 때는 원래대로 메인 메뉴 포커스
         }
     }
-    // 🚀 [신규 추가] 폴더를 빛의 속도로 훑어서 노래가 총 몇 곡인지 숫자만 먼저 세는 함수
+    // 1. 파일 개수 카운터 (폴더 경로를 받아서 셉니다)
     private void countAudioFiles(File folder) {
+        if (!folder.exists()) return;
         File[] files = folder.listFiles();
         if (files != null) {
             for (File f : files) {
@@ -1333,47 +1338,56 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 🚀 [수정 완료] 기존 buildCustomLibrary 함수를 통째로 아래 코드로 덮어씌우세요!
-    private void buildCustomLibrary(File folder) {
+    // 2. 태그 추출 및 바구니 담기 (타겟 바구니를 지정해 줍니다)
+    private void buildCustomLibrary(File folder, List<SongItem> targetLibrary) {
+        if (!folder.exists()) return;
         File[] files = folder.listFiles();
         if (files != null) {
             for (File f : files) {
                 if (f.isDirectory()) {
-                    buildCustomLibrary(f);
+                    buildCustomLibrary(f, targetLibrary);
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
+
+                    // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값(파일 이름)을 먼저 장전해 둡니다!
+                    String title = f.getName();
+                    String artist = "Unknown Artist";
+                    String album = "Unknown Album";
+                    int trackNum = 0;
+
                     try {
                         MediaMetadataRetriever mmr = new MediaMetadataRetriever();
                         java.io.FileInputStream fis = new java.io.FileInputStream(f);
                         mmr.setDataSource(fis.getFD());
 
-                        String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                        String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                        String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
-                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER); // 🚀 트랙 번호 추출!
+                        String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                        String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                        String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
 
-                        if (title == null || title.isEmpty()) title = f.getName();
-                        if (artist == null || artist.isEmpty()) artist = "Unknown Artist";
-                        if (album == null || album.isEmpty()) album = "Unknown Album";
+                        // 태그가 존재할 때만 기본값을 덮어씌웁니다.
+                        if (t != null && !t.trim().isEmpty()) title = t;
+                        if (a != null && !a.trim().isEmpty()) artist = a;
+                        if (al != null && !al.trim().isEmpty()) album = al;
 
-                        customLibrary.add(new SongItem(f, title, artist, album));
-// 🚀 [추가] 추출한 트랙 번호를 다듬어서 파일 주소와 함께 금고에 저장합니다.
-                        int trackNum = 0;
                         if (trackStr != null && !trackStr.isEmpty()) {
                             try {
-                                if (trackStr.contains("/")) {
-                                    trackNum = Integer.parseInt(trackStr.split("/")[0].trim()); // "1/10" 같은 형태에서 "1"만 빼옵니다.
-                                } else {
-                                    trackNum = Integer.parseInt(trackStr.trim());
-                                }
+                                if (trackStr.contains("/")) trackNum = Integer.parseInt(trackStr.split("/")[0].trim());
+                                else trackNum = Integer.parseInt(trackStr.trim());
                             } catch (Exception e) {}
                         }
-                        trackNumberMap.put(f.getAbsolutePath(), trackNum);
+
                         fis.close();
                         mmr.release();
-                    } catch (Exception e) {}
+                    } catch (Exception e) {
+                        // 💡 태그가 없거나 스캐너가 실패해도 앱이 터지지 않고 이 구역으로 안전하게 빠져나옵니다.
+                    }
 
-                    // 🚀 [핵심] 한 곡 읽어 들일 때마다 전체 진행률을 계산해서 화면의 바(Bar)를 밀어 올립니다!
+                    // 🚀 [핵심 해결] 안전지대(try-catch 밖)에서 바구니에 담습니다.
+                    // 에러가 났어도 장전해 둔 기본값(f.getName())으로 정상 추가됩니다!
+                    targetLibrary.add(new SongItem(f, title, artist, album));
+                    trackNumberMap.put(f.getAbsolutePath(), trackNum);
+
                     scannedAudioFiles++;
                     if (totalAudioFiles > 0) {
                         final int progress = (int) (((float) scannedAudioFiles / totalAudioFiles) * 100);
@@ -1382,7 +1396,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 if (pbLoadingProgress != null) pbLoadingProgress.setProgress(progress);
                                 if (tvLoadingProgress != null) {
-                                    tvLoadingProgress.setText("Scanning Music: " + progress + "%\n(" + scannedAudioFiles + " / " + totalAudioFiles + ")\nDo not turn off the screen.");
+                                    tvLoadingProgress.setText("Scanning Media: " + progress + "%\n(" + scannedAudioFiles + " / " + totalAudioFiles + ")\nDo not turn off the screen.");
                                 }
                             }
                         });
@@ -1391,8 +1405,7 @@ public class MainActivity extends Activity {
             }
         }
     }
-
-    // 🚀 [신규 추가] 카운팅 ➔ 스캔 ➔ 화면 갱신을 한 방에 처리하는 중앙 스캔 엔진
+    // 3. 중앙 스캔 엔진 (두 폴더를 순서대로 스캔합니다)
     private void startMediaLibraryScan() {
         if (isCustomScanning) return;
         isCustomScanning = true;
@@ -1410,51 +1423,44 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 customLibrary.clear();
+                audiobookLibrary.clear(); // 🚀 오디오북 바구니도 비우기
                 trackNumberMap.clear();
                 totalAudioFiles = 0;
                 scannedAudioFiles = 0;
 
-                countAudioFiles(rootFolder); // 1. 총 몇 곡인지 광속으로 파악!
-                buildCustomLibrary(rootFolder); // 2. 본격적인 태그 추출 및 UI 갱신 시작!
+                // 🚀 양쪽 폴더 모두 개수 세기
+                countAudioFiles(rootFolder);
+                countAudioFiles(audiobookRootFolder);
 
-                // 🚀 [즐겨찾기 자동 청소기 가동!]
-                // 음악 스캔이 끝난 직후, 현재 기기에 '실제로 살아있는' 노래들의 목록을 뽑아냅니다.
+                // 🚀 양쪽 폴더 모두 스캔해서 각각의 바구니에 담기
+                buildCustomLibrary(rootFolder, customLibrary);
+                buildCustomLibrary(audiobookRootFolder, audiobookLibrary);
+
+                // 즐겨찾기 자동 청소기 가동 (뮤직 기준)
                 java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
-                for (SongItem song : customLibrary) {
-                    aliveSongs.add(song.file.getAbsolutePath());
-                }
+                for (SongItem song : customLibrary) aliveSongs.add(song.file.getAbsolutePath());
+                for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath()); // 💡 오디오북도 포함!
 
                 boolean isCleanedUp = false;
                 java.util.Iterator<String> favIterator = favoritePaths.iterator();
-
-                // 내 금고(즐겨찾기 명단)를 하나씩 넘겨보면서 검사합니다.
                 while (favIterator.hasNext()) {
                     String favPath = favIterator.next();
-                    // 만약 즐겨찾기 명단에 있는 파일이 기기(aliveSongs)에 존재하지 않는다면?
                     if (!aliveSongs.contains(favPath)) {
-                        favIterator.remove(); // 🚀 찌꺼기 유령 데이터를 명단에서 즉시 삭제!
+                        favIterator.remove();
                         isCleanedUp = true;
                     }
                 }
-
-                // 청소한 내역이 있다면, 갱신된 깨끗한 명단을 금고에 다시 덮어씌워 영구 저장합니다.
-                if (isCleanedUp) {
-                    prefs.edit().putStringSet("favorites", favoritePaths).commit();
-                }
+                if (isCleanedUp) prefs.edit().putStringSet("favorites", favoritePaths).commit();
 
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         isCustomScanning = false;
-                        // 스캔 완료 팝업은 기존의 showLoadingPopup() 내장 체커가 알아서 닫아줍니다!
-                        Toast.makeText(MainActivity.this, "Scan Complete! " + customLibrary.size() + " songs found.", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, "Scan Complete! Music: " + customLibrary.size() + ", Books: " + audiobookLibrary.size(), Toast.LENGTH_SHORT).show();
 
-                        // 화면 리프레시
                         if (currentScreenState == STATE_BROWSER) {
                             if (currentBrowserMode == BROWSER_ROOT) buildFileBrowserUI();
                             else if (currentBrowserMode == BROWSER_ARTISTS) buildVirtualCategories("ARTIST");
-                            else if (currentBrowserMode == BROWSER_PLAYLISTS) buildM3uPlaylistUI();
-                            else if (currentBrowserMode == BROWSER_M3U_SONGS) buildM3uSongsUI(currentM3uFile);
                             else if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
                             else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
                         }
@@ -2713,7 +2719,14 @@ public class MainActivity extends Activity {
         btn.setTextColor(ThemeManager.getTextColorPrimary());
 
         btn.setGravity(android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL);
-        btn.setPadding(20, 10, 10, 10);
+
+        // 🚀 [수정] 해상도(Density)에 맞춰서 여백(dp)을 넉넉하게 띄워줍니다!
+        float density = getResources().getDisplayMetrics().density;
+        int padLeft = (int)(25 * density); // 왼쪽 여백 25dp로 시원하게 띄우기!
+        int padTopBottom = (int)(12 * density);
+        int padRight = (int)(10 * density);
+        btn.setPadding(padLeft, padTopBottom, padRight, padTopBottom);
+
         btn.setFocusable(true);
         btn.setSingleLine(true);
 
@@ -3815,80 +3828,75 @@ public class MainActivity extends Activity {
         }
 
         if (currentBrowserMode == BROWSER_ROOT) {
-            tvBrowserPath.setText("Library");
-// 🚀🚀🚀 [여기에 10줄 추가!] 최상단에 즐겨찾기 메뉴 버튼 생성!
-            Button btnFav = createListButton("💖 My Favorites");
-            btnFav.setTextColor(0xFFFF8888); // 눈에 띄는 핑크빛!
-            btnFav.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_FAVORITES;
-                buildVirtualSongsForFavorites();
-            });
-            containerBrowserItems.addView(btnFav);
-            Button btnFolder = createListButton("📁 Folders");
-            btnFolder.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_FOLDER;
-                currentFolder = rootFolder; // 🚀 [추가] 일반 폴더 메뉴 진입 시 무조건 경로를 기본 뮤직 폴더로 리셋합니다!
-                buildFileBrowserUI();
-            });
-            containerBrowserItems.addView(btnFolder);
 
-            Button btnArtist = createListButton("👤 Artists");
-            btnArtist.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_ARTISTS;
-                virtualQueryValue = ""; // 🚀 [추가] 메인에서 새로 들어올 때는 기억을 지워 맨 위부터 봅니다.
-                buildVirtualCategories("ARTIST");
-            });
-            containerBrowserItems.addView(btnArtist);
+            // 🎵 [뮤직 라이브러리 모드]
+            if (!isAudiobookLibraryMode) {
+                tvBrowserPath.setText("Library: Music");
 
-            Button btnAlbum = createListButton("💿 Albums");
-            btnAlbum.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_ALBUMS;
-                virtualQueryValue = ""; // 🚀 [추가] 메인에서 새로 들어올 때는 기억을 지워 맨 위부터 봅니다.
-                buildVirtualCategories("ALBUM");
-            });
-            containerBrowserItems.addView(btnAlbum);
+                Button btnFav = createListButton("💖 My Favorites");
+                btnFav.setTextColor(0xFFFF8888);
+                btnFav.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FAVORITES; buildVirtualSongsForFavorites(); });
+                containerBrowserItems.addView(btnFav);
 
-            Button btnAll = createListButton("🎵 All Songs");
-            btnAll.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_VIRTUAL_SONGS;
-                virtualQueryType = "ALL";
-                buildVirtualSongs();
-            });
-            containerBrowserItems.addView(btnAll);
+                Button btnFolder = createListButton("📁 Folders");
+                btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = rootFolder; buildFileBrowserUI(); });
+                containerBrowserItems.addView(btnFolder);
 
+                Button btnArtist = createListButton("👤 Artists");
+                btnArtist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ARTISTS; virtualQueryValue = ""; buildVirtualCategories("ARTIST"); });
+                containerBrowserItems.addView(btnArtist);
 
-            // 🚀 [추가] 즐겨찾기 버튼 밑에 오디오북 전용 다이렉트 버튼 배치
-            Button btnAudiobook = createListButton("🎧 Audiobooks");
-            btnAudiobook.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_AUDIOBOOKS;
-                // 오디오북 루트 폴더로 탐색기 전환
-                currentFolder = com.themoon.y1.managers.AudiobookManager.getInstance(this).getRootFolder();
-                buildFileBrowserUI();
-            });
-            containerBrowserItems.addView(btnAudiobook);
-            Button btnM3uPlaylist = createListButton("📝 Playlists");
-            btnM3uPlaylist.setOnClickListener(v -> {
-                clickFeedback();
-                currentBrowserMode = BROWSER_PLAYLISTS;
-                buildM3uPlaylistUI();
-            });
-            containerBrowserItems.addView(btnM3uPlaylist);
-            // 🚀 시스템을 거치지 않는 '앱 자체 스캔 엔진' 버튼!
+                Button btnAlbum = createListButton("💿 Albums");
+                btnAlbum.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
+                containerBrowserItems.addView(btnAlbum);
+
+                Button btnAll = createListButton("🎵 All Songs");
+                btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
+                containerBrowserItems.addView(btnAll);
+
+                Button btnM3uPlaylist = createListButton("📝 Playlists");
+                btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
+                containerBrowserItems.addView(btnM3uPlaylist);
+
+                // 🎧 오디오북 모드로 넘어가기 버튼
+                Button btnAudiobook = createListButton("🎧 Switch to Audiobooks");
+                btnAudiobook.setTextColor(0xFF00FFFF);
+                btnAudiobook.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = true; buildFileBrowserUI(); });
+                containerBrowserItems.addView(btnAudiobook);
+            }
+            // 📚 [오디오북 라이브러리 모드]
+            else {
+                tvBrowserPath.setText("Library: Audiobooks");
+
+                Button btnFolder = createListButton("📁 Folders");
+                btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = audiobookRootFolder; buildFileBrowserUI(); });
+                containerBrowserItems.addView(btnFolder);
+
+                Button btnAuthor = createListButton("👤 Authors");
+                btnAuthor.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ARTISTS; virtualQueryValue = ""; buildVirtualCategories("ARTIST"); });
+                containerBrowserItems.addView(btnAuthor);
+
+                Button btnBook = createListButton("📚 Books");
+                btnBook.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
+                containerBrowserItems.addView(btnBook);
+
+                Button btnAll = createListButton("🎧 All Audiobooks");
+                btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
+                containerBrowserItems.addView(btnAll);
+
+                // 🎵 뮤직 모드로 돌아가기 버튼
+                Button btnMusic = createListButton("🎵 Switch to Music");
+                btnMusic.setTextColor(0xFFFF8888);
+                btnMusic.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = false; buildFileBrowserUI(); });
+                containerBrowserItems.addView(btnMusic);
+            }
+
             Button btnScan = createListButton(isCustomScanning ? "⏳ Scanning Media..." : "🔄 Scan Media Library");
             btnScan.setTextColor(0xFFFFFFFF);
-            btnScan.setOnClickListener(v -> {
-                clickFeedback();
-                startMediaLibraryScan();
-            });
+            btnScan.setOnClickListener(v -> { clickFeedback(); startMediaLibraryScan(); });
             containerBrowserItems.addView(btnScan);
-            if (containerBrowserItems.getChildCount() > 0)
-                containerBrowserItems.getChildAt(0).requestFocus();
+
+            if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
         }
         // 🚀 [추가] 화면이 다 그려진 후(50ms 뒤), 방금 나온 폴더/메뉴를 찾아 자동으로 포커스를 꽂습니다!
         containerBrowserItems.postDelayed(new Runnable() {
@@ -3932,8 +3940,11 @@ public class MainActivity extends Activity {
 
         tvBrowserPath.setText("Library: " + type + "s");
 
+        // 🚀 스위치에 따라 뒤질 바구니를 바꿉니다!
+        List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
+
         java.util.HashSet<String> uniqueCategories = new java.util.HashSet<>();
-        for (SongItem song : customLibrary) {
+        for (SongItem song : activeLibrary) {
             String val = type.equals("ARTIST") ? song.artist : song.album;
             uniqueCategories.add(val);
         }
@@ -4008,7 +4019,10 @@ public class MainActivity extends Activity {
         currentScrollIndexList.clear(); // 🚀 [추가] 기존 인덱스 초기화
         final List<SongItem> targetSongs = new ArrayList<>();
 
-        for (SongItem song : customLibrary) {
+        // 🚀 스위치에 따라 뒤질 바구니를 바꿉니다!
+        List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
+
+        for (SongItem song : activeLibrary) {
             if (virtualQueryType.equals("ALL") ||
                     (virtualQueryType.equals("ARTIST") && song.artist.equals(virtualQueryValue)) ||
                     (virtualQueryType.equals("ALBUM") && song.album.equals(virtualQueryValue))) {
@@ -4216,6 +4230,16 @@ public class MainActivity extends Activity {
             }
             for (final File audio : audioFiles) {
                 Button b = createListButton("🎵 " + audio.getName());
+
+                // 🚀 [추가] 오디오북 모드이거나 오디오북 폴더 안이라면 프로그레스 바를 그립니다!
+                if (isAudiobookLibraryMode || currentBrowserMode == BROWSER_AUDIOBOOKS) {
+                    int pos = prefs.getInt("book_pos_" + audio.getAbsolutePath(), 0);
+                    int dur = prefs.getInt("book_dur_" + audio.getAbsolutePath(), 0);
+                    if (pos > 0 && dur > 0) {
+                        setupAudiobookProgress(b, pos, dur); // 💡 새 엔진 호출로 교체!
+                    }
+                }
+
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -4885,7 +4909,23 @@ public class MainActivity extends Activity {
                     clickFeedback();
                     switch (el.action) {
                         case "OPEN_PLAYER": if (currentPlaylist.isEmpty()) Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show(); else changeScreen(STATE_PLAYER); break;
-                        case "OPEN_BROWSER": currentBrowserMode = BROWSER_ROOT; if (customLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan(); changeScreen(STATE_BROWSER); if (isCustomScanning) showLoadingPopup(); break;
+// 🎵 뮤직 라이브러리로 진입
+                        case "OPEN_BROWSER":
+                            isAudiobookLibraryMode = false;
+                            currentBrowserMode = BROWSER_ROOT;
+                            if (customLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
+                            changeScreen(STATE_BROWSER);
+                            if (isCustomScanning) showLoadingPopup();
+                            break;
+
+                        // 📚 오디오북 라이브러리로 다이렉트 진입 (테마 설정에서 action을 "OPEN_AUDIOBOOKS"로 설정하시면 됩니다!)
+                        case "OPEN_AUDIOBOOKS":
+                            isAudiobookLibraryMode = true;
+                            currentBrowserMode = BROWSER_ROOT;
+                            if (audiobookLibrary.isEmpty() && !isCustomScanning) startMediaLibraryScan();
+                            changeScreen(STATE_BROWSER);
+                            if (isCustomScanning) showLoadingPopup();
+                            break;
                         case "OPEN_BLUETOOTH": changeScreen(STATE_BLUETOOTH); break;
                         case "OPEN_SETTINGS": changeScreen(STATE_SETTINGS); break;
                         case "OPEN_WEBSERVER": changeScreen(STATE_WEBSERVER); break;
@@ -5429,8 +5469,20 @@ public class MainActivity extends Activity {
                         if (currentBrowserMode == BROWSER_ROOT) {
                             changeScreen(STATE_MENU);
                         } else if (currentBrowserMode == BROWSER_FOLDER) {
-                            // 🚀 [수정] 루트 폴더이거나 전체 저장소 폴더일 때 뒤로 가기를 누르면 초기화
-                            if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath()) || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
+                            // 🚀 [버그 수정] 현재 모드(음악/오디오북)에 맞춰서 최상위 폴더에 도달했는지 지능적으로 체크합니다!
+                            boolean isAtFolderRoot = false;
+                            if (isAudiobookLibraryMode) {
+                                if (currentFolder.getAbsolutePath().equals(audiobookRootFolder.getAbsolutePath())) {
+                                    isAtFolderRoot = true;
+                                }
+                            } else {
+                                if (currentFolder.getAbsolutePath().equals(rootFolder.getAbsolutePath())) {
+                                    isAtFolderRoot = true;
+                                }
+                            }
+
+                            // 모드별 최상위 폴더이거나 기기 전체 루트 폴더일 때 뒤로 가기를 누르면 라이브러리 메인(BROWSER_ROOT)으로 복귀!
+                            if (isAtFolderRoot || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
                                 currentBrowserMode = BROWSER_ROOT;
                                 lastBrowserFocusText = "📁 Folders";
                                 buildFileBrowserUI();
@@ -7174,6 +7226,78 @@ public class MainActivity extends Activity {
         layoutAudioQualityContainer.setVisibility(View.VISIBLE);
         qualityInfoHandler.removeCallbacks(hideQualityInfoTask);
         qualityInfoHandler.postDelayed(hideQualityInfoTask, 3000);
+    }
+    // 🚀 [신규 1] 오디오북 버튼 전용 포커스 유지 리스너 조립기
+    public void setupAudiobookProgress(final android.widget.Button btn, final int pos, final int dur) {
+        // 처음 화면에 나타날 때 그리기
+        applyProgressBackground(btn, pos, dur, btn.hasFocus());
+
+        // 💡 버튼이 원래 가지고 있던 단순 단색 포커스 리스너를 '프로그레스 전용 리스너'로 덮어씌웁니다!
+        btn.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(android.view.View v, boolean hasFocus) {
+                if (hasFocus) {
+                    btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                    showFastScrollLetter(((android.widget.Button) v).getText().toString());
+                    // 포커스가 닿았을 때의 색상으로 프로그레스 다시 그리기
+                    applyProgressBackground(btn, pos, dur, true);
+                } else {
+                    btn.setTextColor(ThemeManager.getTextColorPrimary());
+                    // 포커스가 벗어났을 때의 평소 색상으로 프로그레스 다시 그리기 (사라짐 방지!)
+                    applyProgressBackground(btn, pos, dur, false);
+                }
+            }
+        });
+    }
+
+    // 🚀 [신규 2] 포커스 상태(isFocused)에 따라 색상을 똑똑하게 조절하는 프로그레스 렌더링 함수
+    public void applyProgressBackground(android.widget.Button btn, int currentMs, int totalMs, boolean isFocused) {
+        if (currentMs <= 0 || totalMs <= 0) return;
+
+        int progressPercent = (int) (((float) currentMs / totalMs) * 10000);
+        if (progressPercent > 10000) progressPercent = 10000;
+
+        int baseColor = isFocused ? ThemeManager.getListButtonFocusedBg() : ThemeManager.getListButtonNormalBg();
+        android.graphics.drawable.Drawable baseBg = createButtonBackground(baseColor);
+
+        int progressColor;
+        if (isFocused) {
+            progressColor = 0x66FFFFFF; // 휠이 닿았을 때: 눈에 확 띄는 반투명 화이트
+        } else {
+            progressColor = (ThemeManager.getListButtonFocusedBg() & 0x00FFFFFF) | 0x44000000; // 평소: 테마색 반투명
+        }
+        android.graphics.drawable.Drawable progressBg = createButtonBackground(progressColor);
+
+        android.graphics.drawable.ClipDrawable clipProgress = new android.graphics.drawable.ClipDrawable(progressBg, android.view.Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL);
+        clipProgress.setLevel(progressPercent);
+
+        android.graphics.drawable.LayerDrawable layerBg = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{baseBg, clipProgress});
+
+        // 🚀 [여백 증발 버그 완벽 차단!] 배경을 바꾸기 전에 기존 여백(Padding)을 안전하게 기억해 둡니다.
+        int pLeft = btn.getPaddingLeft();
+        int pTop = btn.getPaddingTop();
+        int pRight = btn.getPaddingRight();
+        int pBottom = btn.getPaddingBottom();
+
+        btn.setBackground(layerBg); // 🚨 안드로이드가 여기서 여백을 0으로 날려버립니다!
+
+        btn.setPadding(pLeft, pTop, pRight, pBottom); // 💡 날아간 여백을 즉시 100% 복구합니다!
+
+        // 글자 잘림 및 중복 표시 방지 처리
+        String originalText = btn.getText().toString();
+        if (originalText.contains("  ⏱")) {
+            originalText = originalText.substring(0, originalText.indexOf("  ⏱"));
+        }
+
+        // 🚀 [수정] 20자는 너무 짧아서 우측이 텅 비어 보입니다. 45자로 아주 넉넉하게 늘려줍니다!
+        int maxLength = 45;
+        if (originalText.length() > maxLength) {
+            originalText = originalText.substring(0, maxLength) + "...";
+        }
+
+        int min = (currentMs / 1000) / 60;
+        int maxMin = (totalMs / 1000) / 60;
+        btn.setText(originalText + "  ⏱ [" + min + "m / " + maxMin + "m]");
     }
 }
 

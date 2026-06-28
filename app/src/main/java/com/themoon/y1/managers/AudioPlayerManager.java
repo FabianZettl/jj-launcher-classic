@@ -416,7 +416,13 @@ public class AudioPlayerManager {
                 }
                 currentFileInputStream = new java.io.FileInputStream(track);
                 legacyPlayer.setDataSource(currentFileInputStream.getFD());
-                legacyPlayer.prepare(); // 동기식!
+                legacyPlayer.prepare(); // 💡 장전 완료!
+
+                // 🚀 [핵심 로직 1] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
+                int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
+                if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
+                    legacyPlayer.seekTo(savedPos);
+                }
 
                 if (!main.isPausedByHand) legacyPlayer.start();
 
@@ -441,7 +447,14 @@ public class AudioPlayerManager {
                 MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory, extractorsFactory).createMediaSource(mediaItem);
 
                 exoPlayer.setMediaSource(mediaSource);
-                exoPlayer.prepare();
+                exoPlayer.prepare(); // 💡 장전 완료!
+
+                // 🚀 [핵심 로직 2] 쏘기 직전, 오디오북인지 검사하고 기억해둔 시간으로 강제 점프!
+                int savedPos = main.prefs.getInt("book_pos_" + track.getAbsolutePath(), 0);
+                if (savedPos > 0 && (main.isAudiobookLibraryMode || track.getAbsolutePath().contains("/Audiobooks"))) {
+                    exoPlayer.seekTo(savedPos);
+                }
+
                 exoPlayer.setPlaybackParameters(new PlaybackParameters(currentSpeed, 1.0f));
 
                 if (!main.isPausedByHand) exoPlayer.setPlayWhenReady(true);
@@ -479,8 +492,16 @@ public class AudioPlayerManager {
             if (main != null && main.currentPlaylist != null && !main.currentPlaylist.isEmpty()) {
                 if (main.currentIndex >= 0 && main.currentIndex < main.currentPlaylist.size()) {
                     String filePath = main.currentPlaylist.get(main.currentIndex).getAbsolutePath();
-                    if (filePath.startsWith("/storage/sdcard0/Audiobooks")) {
+
+                    // 오디오북 폴더이거나, 오디오북 모드일 때만 저장!
+                    if (filePath.startsWith("/storage/sdcard0/Audiobooks") || main.isAudiobookLibraryMode) {
                         AudiobookManager.getInstance(main).saveBookmark(filePath, getCurrentPosition(), main.currentIndex);
+
+                        // 🚀 [핵심 추가] 프로그레스 바를 그리기 위해 파일 주소를 열쇠로 '현재 위치'와 '총 길이'를 몰래 저장합니다.
+                        main.prefs.edit()
+                                .putInt("book_pos_" + filePath, getCurrentPosition())
+                                .putInt("book_dur_" + filePath, getDuration())
+                                .apply();
                     }
                 }
             }
