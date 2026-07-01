@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
     private static final String SERVER_BASE_URL = "http://knock2025.cafe24.com/knock_knock/y1/";
     private static final String METADATA_URL = SERVER_BASE_URL + "output-metadata.json";
     // 🚀 [대개조 완료] 원하는 앨범 개수(홀수: 3, 5, 7 등)를 언제든 설정할 수 있는 스마트 제어판
-    private int visibleCoversCount = 5; // 💡 5개로 복귀! 테스트 시 7 등으로 여기만 바꾸면 전체 자동 연동됩니다.
+    private int visibleCoversCount = 7; // 💡 5개로 복귀! 테스트 시 7 등으로 여기만 바꾸면 전체 자동 연동됩니다.
 
     private android.widget.FrameLayout coverFlowContainer;
     private android.view.View[] cfViews; // 💡 크기는 아래 UI 생성기에서 동적으로 결정됩니다.
@@ -169,7 +169,14 @@ public class MainActivity extends Activity {
         if (fm.isPowerUp) fm.tune(target);
         else fm.currentFreq = target;
 
-        if (currentScreenState == STATE_SETTINGS) buildRadioUI();
+        // 🚀 [수정 완료] 전체 리로드를 차단하고, 플레이어 화면일 때는 초고속 부분 새로고침만 작동시켜 깜빡임을 방지합니다!
+        if (currentScreenState == STATE_SETTINGS) {
+            if (isRadioUIShowing && !isRadioSettingsMode) {
+                updateRadioMainPlayerUI();
+            } else {
+                buildRadioUI();
+            }
+        }
     }
     // 🚀 [신규 추가] 머티리얼 아이콘 폰트를 담아둘 메모리 공간
     private android.graphics.Typeface materialIconFont = null;
@@ -283,9 +290,13 @@ public class MainActivity extends Activity {
     public boolean isAudiobookLibraryMode = false; // 🚀 현재 무슨 모드인지 기억하는 스위치
     public File audiobookRootFolder = new File("/storage/sdcard0/Audiobooks"); // 🚀 오디오북 전용 루트 폴더
     // 🚀 [추가] 내장 라디오 전용 지능형 조작 변수 뱅크
+    // 🚀 [추가] 내장 라디오 전용 지능형 조작 변수 뱅크 (모달 UI 업그레이드!)
+    public boolean isRadioUIShowing = false; // 현재 화면이 라디오인지 판별
+    public boolean isRadioSettingsMode = false; // 라디오 내에서 설정 모드인지 판별
     public boolean isRadioAdjustingFreq = false;
-    public boolean isRadioAdjustingVolume = false;
-    private int lastRadioFocusIndex = 1; // 라디오 화면 전용 포커스 복구 기억 서랍
+
+    private int lastRadioFocusIndex = 1;
+    // (볼륨 전용 변수와 복잡한 포커스 인덱스는 이제 필요 없으므로 과감히 삭제!)
     private boolean isCustomScanning = false;
     public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
     private int currentScreenState = STATE_MENU;
@@ -471,6 +482,61 @@ public class MainActivity extends Activity {
             } catch (Exception e) {}
         }
     }
+
+    // 🚀 [신규 엔진] 리로드 없이 주파수와 사탕 캡슐 색상만 초고속으로 갈아끼우는 무감쇠 엔진
+    private LinearLayout layoutRadioCandyContainer;
+
+    // 🚀 [신규 엔진] 리로드 없이 주파수와 사탕 캡슐 색상만 초고속으로 갈아끼우는 무감쇠 엔진 (좌측 탈출 버그 완벽 수리)
+    private void updateRadioMainPlayerUI() {
+        final com.themoon.y1.managers.FmRadioManager fmManager = com.themoon.y1.managers.FmRadioManager.getInstance(this);
+
+        // 1. 메인 대형 주파수 전광판 텍스트만 콕 집어서 새로고침
+        TextView tvFreq = (TextView) containerSettingsItems.findViewWithTag("radio_main_freq_text");
+        if (tvFreq != null) {
+            tvFreq.setText(String.format(java.util.Locale.US, "%.1f MHz", fmManager.currentFreq));
+            tvFreq.setTextColor(fmManager.isPowerUp ? (ThemeManager.getListButtonFocusedBg() | 0xFF000000) : 0xFF888888);
+        }
+
+        // 2. 사탕 주머니 안의 알갱이들 배경색과 글자색만 무음 새로고침
+        if (layoutRadioCandyContainer != null) {
+            int themeHighlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
+            float density = getResources().getDisplayMetrics().density;
+            for (int i = 0; i < layoutRadioCandyContainer.getChildCount(); i++) {
+                final View child = layoutRadioCandyContainer.getChildAt(i);
+                if (child instanceof TextView && child.getTag() instanceof Float) {
+                    TextView tvCandy = (TextView) child;
+                    float stationFreq = (Float) child.getTag();
+                    android.graphics.drawable.GradientDrawable candyBg = new android.graphics.drawable.GradientDrawable();
+                    candyBg.setCornerRadius(20 * density);
+
+                    if (Math.abs(fmManager.currentFreq - stationFreq) < 0.05f) {
+                        candyBg.setColor(themeHighlightColor);
+                        tvCandy.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+
+                        layoutRadioCandyContainer.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                android.view.ViewParent parent = layoutRadioCandyContainer.getParent();
+                                if (parent instanceof android.widget.HorizontalScrollView) {
+                                    android.widget.HorizontalScrollView hsv = (android.widget.HorizontalScrollView) parent;
+                                    int scrollX = child.getLeft() - (hsv.getWidth() / 2) + (child.getWidth() / 2);
+
+                                    // 🚀 [핵심 방어막] 스크롤 계산값이 음수가 되면 0(맨 왼쪽)으로 강제 고정하여 첫 채널 짤림을 영원히 방지!
+                                    if (scrollX < 0) scrollX = 0;
+
+                                    hsv.smoothScrollTo(scrollX, 0);
+                                }
+                            }
+                        });
+                    } else {
+                        candyBg.setColor(ThemeManager.getListButtonNormalBg());
+                        tvCandy.setTextColor(ThemeManager.getTextColorSecondary());
+                    }
+                    tvCandy.setBackground(candyBg);
+                }
+            }
+        }
+    }
     // 🚀 [핵심 기술 1] 모든 버튼에 직접 장착될 '글로벌 화면 끄기 센서'입니다!
     public View.OnLongClickListener globalScreenOffLongClickListener = new View.OnLongClickListener() {
         @Override
@@ -538,18 +604,32 @@ public class MainActivity extends Activity {
                                 lastLyricIndex = highlightIndex;
                                 StringBuilder sb = new StringBuilder();
 
-                                // 현재 줄을 기준으로 위아래 2줄씩(총 5줄)만 깔끔하게 보여줍니다.
-                                int start = Math.max(0, highlightIndex - 2);
-                                int end = Math.min(lyricTimestamps.size() - 1, highlightIndex + 2);
+                                // 🚀 [해결 1] 위아래로 무조건 3줄씩, 총 7줄짜리 보이지 않는 액자 틀을 만듭니다.
+                                // 이렇게 하면 하늘색 하이라이트 줄이 액자의 '정중앙(4번째 줄)'에 항상 완벽하게 고정됩니다!
+                                int start = highlightIndex - 3;
+                                int end = highlightIndex + 3;
 
                                 for (int i = start; i <= end; i++) {
-                                    if (i == highlightIndex) {
-                                        sb.append("<font color='#00FFFF'><b>").append(currentLyrics.get(lyricTimestamps.get(i))).append("</b></font><br><br>");
+                                    if (i < 0 || i >= lyricTimestamps.size()) {
+                                        // 💡 가사가 없는 빈 공간(곡의 처음이나 끝부분)은 투명한 빈 줄(&nbsp;)을 세워서 중앙 균형을 강제로 맞춥니다.
+                                        sb.append("&nbsp;<br>");
                                     } else {
-                                        sb.append("<font color='#888888'>").append(currentLyrics.get(lyricTimestamps.get(i))).append("</font><br><br>");
+                                        String lyricText = currentLyrics.get(lyricTimestamps.get(i));
+                                        if (i == highlightIndex) {
+                                            // 🚀 [해결 2] 줄바꿈을 <br><br>에서 <br> 하나로 줄여서 공간이 터지는 걸 막고, 글씨를 <big>으로 키워 확실하게 강조합니다.
+                                            sb.append("<font color='#00FFFF'><b><big>").append(lyricText).append("</big></b></font><br>");
+                                        } else {
+                                            sb.append("<font color='#888888'>").append(lyricText).append("</font><br>");
+                                        }
                                     }
                                 }
                                 tvLyrics.setText(android.text.Html.fromHtml(sb.toString()));
+
+                                // 🚀 [해결 3] 텍스트뷰의 과도한 상하 여백(Padding)을 다이어트시키고, 스크롤을 맨 위(0,0)로 꽉 잠가버립니다!
+                                tvLyrics.setPadding(20, 10, 20, 10);
+                                if (lyricScrollView != null) {
+                                    lyricScrollView.scrollTo(0, 0);
+                                }
                             }
                         }
                     }
@@ -1757,13 +1837,21 @@ public class MainActivity extends Activity {
         }).start();
     }
     // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
+    // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
     private void showLoadingPopup() {
         if (layoutLoadingOverlay != null) {
+            // 🚀 [수리 3] 자동 스캔 화면을 띄울 때도 팝업의 투명도를 100%로 확실하게 채워줍니다!
+            layoutLoadingOverlay.setAlpha(1.0f);
             layoutLoadingOverlay.setVisibility(View.VISIBLE);
+
+            // 🚀 [수리 완료] 공용 도화지(tvLoadingProgress)의 글자 크기를 기본값(18f)으로 강제 초기화!
+            // 이렇게 하면 주파수 조절에서 30f로 커졌던 글씨가, 다른 스캔 작업 시 다시 얌전한 18f 크기로 완벽하게 복구됩니다.
+            if (tvLoadingProgress != null) {
+                tvLoadingProgress.setTextSize(18f);
+            }
 
             // 🚀 [핵심 기술] 스캔하는 동안 시스템이 화면을 절대 끄지 못하도록 강제 명령을 내립니다!
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
             final Handler checker = new Handler();
             checker.post(new Runnable() {
                 @Override
@@ -3006,7 +3094,7 @@ public class MainActivity extends Activity {
                         if (idx != -1) {
                             if (currentSettingsDepth == 0) lastSettingsFocusIndex = idx;
                             else if (currentSettingsDepth == 1) {
-                                lastRadioFocusIndex = idx; // 💡 라디오 포커스 완벽 추적!
+                                //lastRadioFocusIndex = idx; // 💡 라디오 포커스 완벽 추적!
 
                                 // 🚀 [주파수 전광판 시야 확보]
                                 // 포커스가 상단 항목(Power=2, Tune=3)에 위치하면 안드로이드 스크롤뷰가
@@ -3165,6 +3253,17 @@ public class MainActivity extends Activity {
 
     private void buildSettingsUI() {
         currentSettingsDepth = 0; // 🚀 메인 설정은 깊이 0
+
+        // 🚀 [안전장치] 일반 세팅 화면으로 들어오면 라디오 UI 플래그를 완벽하게 해제합니다.
+        isRadioUIShowing = false;
+        isRadioSettingsMode = false;
+
+        // 🚀 [추가] 일반 설정창으로 돌아올 때는 숨겨둔 상단 제목 글씨를 다시 띄워줍니다.
+        android.view.ViewGroup settingsGroup = (android.view.ViewGroup) layoutSettingsMode;
+        if (settingsGroup != null && settingsGroup.getChildCount() > 0 && settingsGroup.getChildAt(0) instanceof TextView) {
+            settingsGroup.getChildAt(0).setVisibility(View.VISIBLE);
+        }
+
         final int targetFocusIndex = lastSettingsFocusIndex;
         containerSettingsItems.removeAllViews();
 
@@ -3690,253 +3789,332 @@ public class MainActivity extends Activity {
 
         if (containerSettingsItems.getChildCount() > 0) containerSettingsItems.getChildAt(0).requestFocus();
     }
-      private void buildRadioUI() {
-          currentSettingsDepth = 1;
-          final int targetFocusIndex = lastRadioFocusIndex;
-          containerSettingsItems.removeAllViews();
+    private void buildRadioUI() {
+        currentSettingsDepth = 1;
+        isRadioUIShowing = true; // 🚀 내가 지금 라디오 화면에 있다는 걸 시스템에 알림!
+        containerSettingsItems.removeAllViews();
 
-          final com.themoon.y1.managers.FmRadioManager fmManager = com.themoon.y1.managers.FmRadioManager.getInstance(this);
+        // 🚀 상단 "Settings" 유령 타이틀 원천 차단 숨김 처리
+        android.view.ViewGroup settingsGroup = (android.view.ViewGroup) layoutSettingsMode;
+        if (settingsGroup != null && settingsGroup.getChildCount() > 0 && settingsGroup.getChildAt(0) instanceof TextView) {
+            settingsGroup.getChildAt(0).setVisibility(View.GONE);
+        }
 
-          // 앱이 켜질 때 딱 한 번 금고에서 저장된 주파수들을 꺼내옵니다.
-          if (savedRadioStations.isEmpty()) {
-              try {
-                  String savedStationsStr = prefs.getString("radio_stations", "");
-                  if (!savedStationsStr.isEmpty()) {
-                      for(String s : savedStationsStr.split(",")) savedRadioStations.add(Float.parseFloat(s));
-                  }
-              } catch(Exception e){}
-          }
+        final com.themoon.y1.managers.FmRadioManager fmManager = com.themoon.y1.managers.FmRadioManager.getInstance(this);
 
-          // 0. 대형 디지털 주파수 전광판
-          final android.widget.TextView tvFreq = new android.widget.TextView(this);
-          tvFreq.setText(String.format(java.util.Locale.US, "%.1f MHz", fmManager.currentFreq));
-          tvFreq.setTextColor(fmManager.isPowerUp ? (ThemeManager.getListButtonFocusedBg() | 0xFF000000) : 0xFF888888);
-          tvFreq.setTextSize(44);
-          tvFreq.setGravity(android.view.Gravity.CENTER);
-          tvFreq.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-          tvFreq.setPadding(0, 30, 0, 30);
-          containerSettingsItems.addView(tvFreq);
+        if (savedRadioStations.isEmpty()) {
+            try {
+                String savedStationsStr = prefs.getString("radio_stations", "");
+                if (!savedStationsStr.isEmpty()) {
+                    for(String s : savedStationsStr.split(",")) savedRadioStations.add(Float.parseFloat(s));
+                }
+            } catch(Exception e){}
+        }
 
-          // 1. 라디오 전원 토글 로우 (인덱스 1)
-          final android.widget.LinearLayout btnPower = createSettingRow("Radio Power", fmManager.isPowerUp ? t("ON") : t("OFF"));
-          btnPower.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnPower.setOnClickListener(v -> {
-              clickFeedback();
-              if (fmManager.isPowerUp) {
-                  fmManager.powerDown();
-                  isRadioAdjustingFreq = false;
-                  isRadioAdjustingVolume = false;
-              } else {
-                  // 🚀 [에러 수리] 없는 함수 대신, 현재 재생 중일 때만 playOrPauseMusic()을 호출하여 음악을 정지시킵니다!
-                  com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-                  if (am.isPlaying()) {
-                      am.playOrPauseMusic();
-                  }
-                  try { Thread.sleep(100); } catch(Exception e){} // 오디오 칩셋이 통로를 완전히 해제할 시간(0.1초) 제공
+        final float density = getResources().getDisplayMetrics().density;
 
-                  if (fmManager.powerUp(fmManager.currentFreq)) {
-                      activePlayer = 1;
-                  } else {
-                      android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
-                  }
-              }
-              updateGlobalStatusPlayIcon();
-              lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnPower);
-              buildRadioUI();
-          });
-          containerSettingsItems.addView(btnPower);
+        // ==========================================================
+        // 🎧 [모드 1] 기본 플레이어 모드 (🔮 네온 하이라이트 글로우 + 하단 정렬)
+        // ==========================================================
+        if (!isRadioSettingsMode) {
 
-          // 🚀 2. 채널 좌우 네비게이션 버튼
-          android.widget.LinearLayout channelLayout = new android.widget.LinearLayout(this);
-          channelLayout.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            // 고급 외곽 프레임 패널 세팅
+            android.widget.FrameLayout freqPanel = new android.widget.FrameLayout(this);
+            android.widget.LinearLayout.LayoutParams panelLp = new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            panelLp.setMargins((int)(15 * density), (int)(30 * density), (int)(15 * density), (int)(15 * density));
+            freqPanel.setLayoutParams(panelLp);
 
-          android.widget.Button btnPrevCh = createListButton("◀ Prev Ch");
-          btnPrevCh.setLayoutParams(new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
-          btnPrevCh.setGravity(android.view.Gravity.CENTER);
-          btnPrevCh.setOnClickListener(v -> { clickFeedback(); tuneToNextSavedRadioChannel(false); });
+            android.graphics.drawable.GradientDrawable panelBg = new android.graphics.drawable.GradientDrawable();
+            panelBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+            panelBg.setCornerRadius(18 * density);
 
-          android.widget.Button btnNextCh = createListButton("Next Ch ▶");
-          btnNextCh.setLayoutParams(new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
-          btnNextCh.setGravity(android.view.Gravity.CENTER);
-          btnNextCh.setOnClickListener(v -> { clickFeedback(); tuneToNextSavedRadioChannel(true); });
+            int themeHighlightColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
 
-          channelLayout.addView(btnPrevCh);
-          channelLayout.addView(btnNextCh);
-          containerSettingsItems.addView(channelLayout);
+            if (fmManager.isPowerUp) {
+                int backlitColor = (themeHighlightColor & 0x00FFFFFF) | 0x42000000;
+                panelBg.setColor(backlitColor);
+                panelBg.setStroke((int)(4 * density), themeHighlightColor);
+            } else {
+                panelBg.setColor(0x15FFFFFF);
+                panelBg.setStroke((int)(1 * density), 0x33FFFFFF);
+            }
+            freqPanel.setBackground(panelBg);
 
-          // 3. 주파수 미세 튜닝
-          String freqRightText = isRadioAdjustingFreq ? t("[ ADJUSTING ]") : t("Click to Tune");
-          final android.widget.LinearLayout btnTune = createSettingRow("Tune Frequency", freqRightText);
-          if (isRadioAdjustingFreq) ((android.widget.TextView)btnTune.getChildAt(1)).setTextColor(0xFFFF8800);
-          btnTune.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnTune.setOnClickListener(v -> {
-              clickFeedback();
-              isRadioAdjustingFreq = !isRadioAdjustingFreq;
-              isRadioAdjustingVolume = false;
-              lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnTune);
-              buildRadioUI();
-          });
-          containerSettingsItems.addView(btnTune);
+            // 대형 디지털 주파수 텍스트 뷰
+            final android.widget.TextView tvFreq = new android.widget.TextView(this);
+            tvFreq.setTag("radio_main_freq_text");
+            tvFreq.setText(String.format(java.util.Locale.US, "%.1f MHz", fmManager.currentFreq));
+            tvFreq.setTextColor(fmManager.isPowerUp ? themeHighlightColor : 0xFF888888);
+            tvFreq.setTextSize(54);
+            tvFreq.setGravity(android.view.Gravity.CENTER);
+            tvFreq.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+            tvFreq.setPadding(0, (int)(38 * density), 0, (int)(38 * density));
 
-          // 🚀 4. 현재 주파수 수동 저장/삭제 토글
-          boolean isSaved = savedRadioStations.contains(fmManager.currentFreq);
-          final android.widget.LinearLayout btnSaveFreq = createSettingRow("Save Channel", isSaved ? "★ " + t("SAVED") : "☆ " + t("SAVE"));
-          if (isSaved) ((android.widget.TextView)btnSaveFreq.getChildAt(1)).setTextColor(0xFFFF8800);
-          btnSaveFreq.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnSaveFreq.setOnClickListener(v -> {
-              clickFeedback();
-              if (isSaved) {
-                  savedRadioStations.remove(Float.valueOf(fmManager.currentFreq));
-                  android.widget.Toast.makeText(MainActivity.this, "Removed from saved channels.", android.widget.Toast.LENGTH_SHORT).show();
-              } else {
-                  savedRadioStations.add(fmManager.currentFreq);
-                  java.util.Collections.sort(savedRadioStations);
-                  android.widget.Toast.makeText(MainActivity.this, "Channel saved!", android.widget.Toast.LENGTH_SHORT).show();
-              }
-              // 💡 금고에 안전하게 문자열로 변환해서 저장
-              StringBuilder sb = new StringBuilder();
-              for(int i=0; i<savedRadioStations.size(); i++) {
-                  sb.append(savedRadioStations.get(i));
-                  if(i < savedRadioStations.size()-1) sb.append(",");
-              }
-              prefs.edit().putString("radio_stations", sb.toString()).commit();
-              lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnSaveFreq);
-              buildRadioUI();
-          });
-          containerSettingsItems.addView(btnSaveFreq);
+            freqPanel.addView(tvFreq);
+            containerSettingsItems.addView(freqPanel);
 
-          // 5. 볼륨 하드웨어 제어
-          int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-          String volRightText = isRadioAdjustingVolume ? "[ ADJUSTING: " + currentVol + " ]" : "Vol: " + currentVol;
-          final android.widget.LinearLayout btnVolume = createSettingRow("Volume Control", volRightText);
-          if (isRadioAdjustingVolume) ((android.widget.TextView)btnVolume.getChildAt(1)).setTextColor(0xFFFF8800);
-          btnVolume.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnVolume.setOnClickListener(v -> {
-              clickFeedback();
-              isRadioAdjustingVolume = !isRadioAdjustingVolume;
-              isRadioAdjustingFreq = false;
-              lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnVolume);
-              buildRadioUI();
-          });
-          containerSettingsItems.addView(btnVolume);
-// 🚀 7. 자동 스캔 버튼 (시각화 스위핑 애니메이션 탑재)
-          final android.widget.LinearLayout btnAutoScan = createSettingRow("Auto Scan All", t("Start") + " 〉");
-          btnAutoScan.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnAutoScan.setOnClickListener(v -> {
-              clickFeedback();
-              if (!fmManager.isPowerUp) {
-                  android.widget.Toast.makeText(MainActivity.this, "Please turn on Radio Power first!", android.widget.Toast.LENGTH_SHORT).show();
-                  return;
-              }
+            // 🍬 가로 스크롤형 알약 채널 컨테이너
+            if (!savedRadioStations.isEmpty()) {
+                android.widget.HorizontalScrollView hzScroll = new android.widget.HorizontalScrollView(this);
+                hzScroll.setHorizontalScrollBarEnabled(false);
+                hzScroll.setClipChildren(false);
+                hzScroll.setClipToPadding(false);
+                // 💡 이 옵션이 켜져 있어야 채널이 적을 때(1~3개) 예쁘게 중앙 정렬이 가능합니다!
+                hzScroll.setFillViewport(true);
+                hzScroll.setPadding(0, 15, 0, 15);
 
-              isRadioScanning = true;
-              showLoadingPopup();
+                android.widget.LinearLayout candyContainer = new android.widget.LinearLayout(this);
+                candyContainer.setOrientation(android.widget.LinearLayout.HORIZONTAL);
 
-              // 💡 1. 스캔 시각화 애니메이션 쓰레드 (가짜 진행률 바 & 주파수 스위핑 효과)
-              new Thread(() -> {
-                  float fakeFreq = 87.5f;
-                  int progress = 0;
-                  while (isRadioScanning) {
-                      final int p = progress;
-                      final float f = fakeFreq;
-                      runOnUiThread(() -> {
-                          if (pbLoadingProgress != null) {
-                              pbLoadingProgress.setIndeterminate(false); // 애니메이션 게이지 수동 컨트롤
-                              pbLoadingProgress.setProgress(p);
-                          }
-                          if (tvLoadingProgress != null) {
-                              tvLoadingProgress.setText(String.format(java.util.Locale.US, "Scanning FM Frequencies...\nSearching around %.1f MHz", f));
-                          }
-                      });
+                // 🚀 [수리 1] CENTER_VERTICAL 대신 완벽한 CENTER 정렬을 허용합니다.
+                candyContainer.setGravity(android.view.Gravity.CENTER);
 
-                      try { Thread.sleep(70); } catch(Exception e){} // 애니메이션 속도 조절
+                for (int i = 0; i < savedRadioStations.size(); i++) {
+                    float stationFreq = savedRadioStations.get(i);
 
-                      progress += 1;
-                      if (progress > 100) progress = 0;
-                      fakeFreq += 0.1f;
-                      if (fakeFreq > 108.0f) fakeFreq = 87.5f;
-                  }
-              }).start();
+                    android.widget.TextView tvCandy = new android.widget.TextView(this);
+                    tvCandy.setText(String.format(java.util.Locale.US, "%.1f", stationFreq));
+                    tvCandy.setTextSize(18f);
+                    tvCandy.setGravity(android.view.Gravity.CENTER);
+                    tvCandy.setPadding((int)(14*density), (int)(6*density), (int)(14*density), (int)(6*density));
+                    tvCandy.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
+                    tvCandy.setTag(stationFreq);
 
-              // 💡 2. 실제 C++ 하드웨어 칩셋 스캔 엔진 쓰레드 (차단형)
-              new Thread(() -> {
-                  final float[] foundStations = fmManager.autoScan();
-                  isRadioScanning = false; // 🚀 스캔 완료 시 시각화 애니메이션 즉시 정지 명령!
+                    android.graphics.drawable.GradientDrawable candyBg = new android.graphics.drawable.GradientDrawable();
+                    candyBg.setCornerRadius(20 * density);
 
-                  runOnUiThread(() -> {
-                      if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(android.view.View.GONE);
-                      if (tvLoadingProgress != null) tvLoadingProgress.setText("Preparing to scan...\nPlease wait."); // 문구 초기화
+                    if (Math.abs(fmManager.currentFreq - stationFreq) < 0.05f) {
+                        candyBg.setColor(themeHighlightColor);
+                        tvCandy.setTextColor(ThemeManager.getListButtonFocusedTextColor());
 
-                      if (foundStations != null && foundStations.length > 0) {
-                          savedRadioStations.clear();
-                          for (float f : foundStations) savedRadioStations.add(f);
-                          java.util.Collections.sort(savedRadioStations);
+                        final android.view.View targetChild = tvCandy;
+                        final android.widget.HorizontalScrollView finalHzScroll = hzScroll;
+                        hzScroll.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                int scrollX = targetChild.getLeft() - (finalHzScroll.getWidth() / 2) + (targetChild.getWidth() / 2);
+                                if (scrollX < 0) scrollX = 0; // 안전장치
+                                finalHzScroll.scrollTo(scrollX, 0);
+                            }
+                        });
+                    } else {
+                        candyBg.setColor(ThemeManager.getListButtonNormalBg());
+                        tvCandy.setTextColor(ThemeManager.getTextColorSecondary());
+                    }
 
-                          StringBuilder sb = new StringBuilder();
-                          for(int i=0; i<savedRadioStations.size(); i++) {
-                              sb.append(savedRadioStations.get(i));
-                              if(i < savedRadioStations.size()-1) sb.append(",");
-                          }
-                          prefs.edit().putString("radio_stations", sb.toString()).commit();
+                    tvCandy.setBackground(candyBg);
 
-                          // 🚀 화면에 총 몇 개의 채널을 찾았는지 박제해 줍니다!
-                          android.widget.Toast.makeText(MainActivity.this, "Scan Complete!\nFound " + foundStations.length + " channels.\nTuning to " + foundStations[0] + "MHz", android.widget.Toast.LENGTH_LONG).show();
-                          fmManager.tune(foundStations[0]);
-                      } else {
-                          android.widget.Toast.makeText(MainActivity.this, "No stations found. (" + fmManager.lastError + ")", android.widget.Toast.LENGTH_LONG).show();
-                      }
+                    android.widget.LinearLayout.LayoutParams candyLp = new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                    candyLp.setMargins((int)(6*density), 0, (int)(6*density), 0);
+                    tvCandy.setLayoutParams(candyLp);
 
-                      lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnAutoScan);
-                      buildRadioUI();
-                  });
-              }).start();
-          });
-          containerSettingsItems.addView(btnAutoScan);
-          // 6. 오디오 최종 출력 경로
-          final android.widget.LinearLayout btnSpeaker = createSettingRow("Audio Output", fmManager.isSpeakerOn ? t("Speaker") : t("Earphones"));
-          btnSpeaker.setOnLongClickListener(globalScreenOffLongClickListener);
-          btnSpeaker.setOnClickListener(v -> {
-              clickFeedback();
-              fmManager.setSpeaker(!fmManager.isSpeakerOn);
-              lastRadioFocusIndex = containerSettingsItems.indexOfChild(btnSpeaker);
-              buildRadioUI();
-          });
-          containerSettingsItems.addView(btnSpeaker);
+                    candyContainer.addView(tvCandy);
+                }
 
+                // 🚀 [수리 2 핵심!] MATCH_PARENT와 CENTER_HORIZONTAL을 완전히 버리고 WRAP_CONTENT 로 변경!
+                // 이렇게 하면 아이템이 많아져도 왼쪽 벽(0px 지점)이 무너지지 않고 정상적으로 우측으로만 스크롤이 확장됩니다.
+                android.widget.FrameLayout.LayoutParams containerLp = new android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT);
 
+                // ❌ 절대 금지: containerLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
 
-          // 🚀 스크롤 방어망 인덱스 한계점도 버튼이 늘어난 만큼 여유롭게(4번까지) 늘려줍니다.
-          // 그리고 이전에 추가하셨던 createSettingRow 내부에 있던 스크롤 방어(idx <= 2) 코드도 (idx <= 4)로 바꿔주시면 좋습니다!
-          containerSettingsItems.postDelayed(new Runnable() {
-              @Override
-              public void run() {
-                  boolean isFocusRestored = false;
-                  if (targetFocusIndex >= 0 && targetFocusIndex < containerSettingsItems.getChildCount()) {
-                      android.view.View target = containerSettingsItems.getChildAt(targetFocusIndex);
-                      if (target.isFocusable()) {
-                          target.requestFocus();
-                          if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
-                              android.widget.ScrollView sv = (android.widget.ScrollView) containerSettingsItems.getParent();
-                              if (targetFocusIndex <= 4 || isRadioAdjustingFreq) {
-                                  sv.scrollTo(0, 0);
-                              } else {
-                                  sv.requestChildFocus(containerSettingsItems, target);
-                              }
-                          }
-                          lastRadioFocusIndex = targetFocusIndex;
-                          isFocusRestored = true;
-                      }
-                  }
-                  if (!isFocusRestored && containerSettingsItems.getChildCount() > 1) {
-                      containerSettingsItems.getChildAt(1).requestFocus();
-                      if (containerSettingsItems.getParent() instanceof android.widget.ScrollView) {
-                          ((android.widget.ScrollView) containerSettingsItems.getParent()).scrollTo(0, 0);
-                      }
-                      lastRadioFocusIndex = 1;
-                  }
-              }
-          }, 50);
-      }
+                hzScroll.addView(candyContainer, containerLp);
+
+                // 🚀 [버그 수리 완료] 조립이 끝난 가로 스크롤 주머니를 메인 화면에 찰칵! 부착합니다.
+                containerSettingsItems.addView(hzScroll);
+
+                layoutRadioCandyContainer = candyContainer;
+            }
+
+            // 하단 조작계 배정을 위한 가중치 스페이서
+            android.view.View spacer = new android.view.View(this);
+            android.widget.LinearLayout.LayoutParams spacerLp = new android.widget.LinearLayout.LayoutParams(0, 0, 1.0f);
+            spacer.setLayoutParams(spacerLp);
+            containerSettingsItems.addView(spacer);
+
+            // 3. 설정 모드 진입 버튼 (최하단 안착)
+            android.widget.Button btnSettings = createListButton(t("Radio Settings"));
+            btnSettings.setGravity(android.view.Gravity.CENTER);
+
+            android.widget.LinearLayout.LayoutParams settingsLp = (android.widget.LinearLayout.LayoutParams) btnSettings.getLayoutParams();
+            if (settingsLp != null) {
+                settingsLp.bottomMargin = (int)(15 * density);
+                btnSettings.setLayoutParams(settingsLp);
+            }
+
+            btnSettings.setOnClickListener(v -> {
+                clickFeedback();
+                isRadioSettingsMode = true;
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnSettings);
+
+            containerSettingsItems.postDelayed(() -> {
+                if (containerSettingsItems.getChildCount() > 0) {
+                    containerSettingsItems.getChildAt(containerSettingsItems.getChildCount() - 1).requestFocus();
+                }
+            }, 50);
+
+        }
+        // ==========================================================
+        // ⚙️ [모드 2] 설정 서브 페이지 모드 (기존 로직 완벽 유지)
+        // ==========================================================
+        else {
+            android.widget.Button btnClose = createListButton("Back " + t("Close Settings (Back to Player)"));
+            btnClose.setTextColor(0xFFFF8800);
+            btnClose.setOnClickListener(v -> {
+                clickFeedback();
+                isRadioSettingsMode = false;
+                isRadioAdjustingFreq = false;
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnClose);
+
+            final android.widget.LinearLayout btnPower = createSettingRow("Radio Power", fmManager.isPowerUp ? t("ON") : t("OFF"));
+            btnPower.setOnLongClickListener(globalScreenOffLongClickListener);
+            btnPower.setOnClickListener(v -> {
+                clickFeedback();
+                if (fmManager.isPowerUp) {
+                    fmManager.powerDown();
+                    isRadioAdjustingFreq = false;
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
+                    if (am.isPlaying()) am.playOrPauseMusic();
+                    try { Thread.sleep(100); } catch(Exception e){}
+                    if (fmManager.powerUp(fmManager.currentFreq)) activePlayer = 1;
+                    else android.widget.Toast.makeText(MainActivity.this, "Radio Error: " + fmManager.lastError, android.widget.Toast.LENGTH_LONG).show();
+                }
+                updateGlobalStatusPlayIcon();
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnPower);
+
+            String freqRightText = isRadioAdjustingFreq ? t("[ ADJUSTING ]") : t("Click to Tune");
+            final android.widget.LinearLayout btnTune = createSettingRow("Tune Frequency", freqRightText);
+            if (isRadioAdjustingFreq) ((android.widget.TextView)btnTune.getChildAt(1)).setTextColor(0xFFFF8800);
+            btnTune.setOnLongClickListener(globalScreenOffLongClickListener);
+            btnTune.setOnClickListener(v -> {
+                clickFeedback();
+                isRadioAdjustingFreq = !isRadioAdjustingFreq;
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnTune);
+
+            boolean isSaved = savedRadioStations.contains(fmManager.currentFreq);
+            final android.widget.LinearLayout btnSaveFreq = createSettingRow("Save Channel", isSaved ? "★ " + t("SAVED") : "☆ " + t("SAVE"));
+            if (isSaved) ((android.widget.TextView)btnSaveFreq.getChildAt(1)).setTextColor(0xFFFF8800);
+            btnSaveFreq.setOnLongClickListener(globalScreenOffLongClickListener);
+            btnSaveFreq.setOnClickListener(v -> {
+                clickFeedback();
+                if (isSaved) {
+                    savedRadioStations.remove(Float.valueOf(fmManager.currentFreq));
+                    android.widget.Toast.makeText(MainActivity.this, "Removed from saved channels.", android.widget.Toast.LENGTH_SHORT).show();
+                } else {
+                    savedRadioStations.add(fmManager.currentFreq);
+                    java.util.Collections.sort(savedRadioStations);
+                    android.widget.Toast.makeText(MainActivity.this, "Channel saved!", android.widget.Toast.LENGTH_SHORT).show();
+                }
+                StringBuilder sb = new StringBuilder();
+                for(int i=0; i<savedRadioStations.size(); i++) {
+                    sb.append(savedRadioStations.get(i));
+                    if(i < savedRadioStations.size()-1) sb.append(",");
+                }
+                prefs.edit().putString("radio_stations", sb.toString()).commit();
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnSaveFreq);
+
+            final android.widget.LinearLayout btnAutoScan = createSettingRow("Auto Scan All", t("Start") + " >");
+            btnAutoScan.setOnLongClickListener(globalScreenOffLongClickListener);
+            btnAutoScan.setOnClickListener(v -> {
+                clickFeedback();
+                if (!fmManager.isPowerUp) {
+                    android.widget.Toast.makeText(MainActivity.this, "Please turn on Radio Power first!", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (isRadioScanning) return;
+
+                isRadioScanning = true;
+                showLoadingPopup();
+
+                new Thread(() -> {
+                    float fakeFreq = 87.5f;
+                    int progress = 0;
+                    while (isRadioScanning) {
+                        final int p = progress;
+                        final float f = fakeFreq;
+                        runOnUiThread(() -> {
+                            if (pbLoadingProgress != null) {
+                                pbLoadingProgress.setIndeterminate(false);
+                                pbLoadingProgress.setProgress(p);
+                            }
+                            if (tvLoadingProgress != null) {
+                                tvLoadingProgress.setText(String.format(java.util.Locale.US, "Scanning FM Frequencies...\nSearching around %.1f MHz", f));
+                            }
+                        });
+                        try { Thread.sleep(70); } catch(Exception e){}
+                        progress += 1;
+                        if (progress > 100) progress = 0;
+                        fakeFreq += 0.1f;
+                        if (fakeFreq > 108.0f) fakeFreq = 87.5f;
+                    }
+                }).start();
+
+                new Thread(() -> {
+                    final float[] foundStations = fmManager.autoScan();
+                    isRadioScanning = false;
+
+                    runOnUiThread(() -> {
+                        if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(android.view.View.GONE);
+                        if (tvLoadingProgress != null) tvLoadingProgress.setText("Preparing to scan...\nPlease wait.");
+
+                        if (foundStations != null && foundStations.length > 0) {
+                            savedRadioStations.clear();
+                            for (float f : foundStations) savedRadioStations.add(f);
+                            java.util.Collections.sort(savedRadioStations);
+
+                            StringBuilder sb = new StringBuilder();
+                            for(int i=0; i<savedRadioStations.size(); i++) {
+                                sb.append(savedRadioStations.get(i));
+                                if(i < savedRadioStations.size()-1) sb.append(",");
+                            }
+                            prefs.edit().putString("radio_stations", sb.toString()).commit();
+                            android.widget.Toast.makeText(MainActivity.this, "Scan Complete!\nFound " + foundStations.length + " channels.\nTuning to " + foundStations[0] + "MHz", android.widget.Toast.LENGTH_LONG).show();
+                            fmManager.tune(foundStations[0]);
+                        } else {
+                            android.widget.Toast.makeText(MainActivity.this, "No stations found. (" + fmManager.lastError + ")", android.widget.Toast.LENGTH_LONG).show();
+                        }
+                        buildRadioUI();
+                    });
+                }).start();
+            });
+            containerSettingsItems.addView(btnAutoScan);
+
+            final android.widget.LinearLayout btnSpeaker = createSettingRow("Audio Output", fmManager.isSpeakerOn ? t("Speaker") : t("Earphones"));
+            btnSpeaker.setOnLongClickListener(globalScreenOffLongClickListener);
+            btnSpeaker.setOnClickListener(v -> {
+                clickFeedback();
+                fmManager.setSpeaker(!fmManager.isSpeakerOn);
+                buildRadioUI();
+            });
+            containerSettingsItems.addView(btnSpeaker);
+
+            containerSettingsItems.postDelayed(() -> {
+                int targetIdx = lastRadioFocusIndex;
+                if (isRadioAdjustingFreq) {
+                    targetIdx = 2;
+                }
+                if (targetIdx >= 0 && targetIdx < containerSettingsItems.getChildCount()) {
+                    containerSettingsItems.getChildAt(targetIdx).requestFocus();
+                } else if (containerSettingsItems.getChildCount() > 0) {
+                    containerSettingsItems.getChildAt(0).requestFocus();
+                }
+            }, 50);
+        }
+    }
+
     private void buildUpdateSettingsUI() {
         currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
@@ -4741,6 +4919,15 @@ public class MainActivity extends Activity {
         coverFlowContainer.setClipChildren(false);
         coverFlowContainer.setClipToPadding(false);
 
+        // 🚀 [버그 완벽 해결] 상위 부모 레이아웃들의 '여백 자르기' 본능을 완전히 억제시킵니다!
+        // 이제 앨범 이미지가 화면 양쪽 끝(Margin/Padding 구역)으로 넘어가도 칼처럼 잘리지 않습니다.
+        containerBrowserItems.setClipChildren(false);
+        containerBrowserItems.setClipToPadding(false);
+        if (scrollViewBrowser instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) scrollViewBrowser).setClipChildren(false);
+            ((android.view.ViewGroup) scrollViewBrowser).setClipToPadding(false);
+        }
+
         int height = (int)(320 * getResources().getDisplayMetrics().density);
         android.widget.LinearLayout.LayoutParams containerLp = new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, height);
@@ -4796,35 +4983,52 @@ public class MainActivity extends Activity {
         tvBrowserPath.setText(t("Cover Flow") + " (" + (currentCoverFlowIndex + 1) + "/" + total + ")");
     }
     // 🚀 [알고리즘 엔진] 중앙에서부터의 거리에 따른 X축 이동 거리 계산
+//    private float getTransXForDist(int dist, float d) {
+//        if (dist == 0) return 0f;
+//        if (dist == 1) return 110 * d;
+//        if (dist == 2) return 180 * d;
+//        return 230 * d; // 거리가 3 이상일 때
+//    }
+
     private float getTransXForDist(int dist, float d) {
         if (dist == 0) return 0f;
-        if (dist == 1) return 110 * d;
-        if (dist == 2) return 180 * d;
-        return 230 * d; // 거리가 3 이상일 때
+        if (dist == 1) return 130 * d;
+        if (dist == 2) return 170 * d;
+        return 220 * d; // 거리가 3 이상일 때
     }
 
-    // 🚀 [알고리즘 엔진] 중앙에서부터의 거리에 따른 Y축 회전 각도 계산
+    // 🚀 숫자를 높일수록 책장에 책을 비스듬히 꽂아둔 것처럼 각도가 팍 꺾입니다!
+//    private float getRotYForDist(int dist) {
+//        if (dist == 0) return 0f;
+//        if (dist == 1) return 60f;  // 💡 45도 -> 60도로 더 깊게 꺾기!
+//        if (dist == 2) return 75f;  // 💡 60도 -> 75도로 더 깊게 꺾기!
+//        return 80f;
+//    }
     private float getRotYForDist(int dist) {
         if (dist == 0) return 0f;
-        if (dist == 1) return 45f;
-        if (dist == 2) return 60f;
-        return 70f;
+        if (dist == 1) return 65f;  // 💡 45도 -> 60도로 더 깊게 꺾기!
+//        if (dist == 2) return 75f;  // 💡 60도 -> 75도로 더 깊게 꺾기!
+        return 65f;
     }
-
     // 🚀 [알고리즘 엔진] 중앙에서부터의 거리에 따른 크기 축소 비율 계산
     private float getScaleForDist(int dist) {
         if (dist == 0) return 1.0f;
         if (dist == 1) return 0.8f;
-        if (dist == 2) return 0.6f;
-        return 0.4f;
+        if (dist == 2) return 0.8f;
+        return 0.8f;
     }
-
     // 🚀 [알고리즘 엔진] 중앙에서부터의 거리에 따른 투명도 계산
+//    private float getAlphaForDist(int dist) {
+//        if (dist == 0) return 1.0f;
+//        if (dist == 1) return 0.8f;
+//        if (dist == 2) return 0.5f;
+//        return 0.1f;
+//    }
     private float getAlphaForDist(int dist) {
-        if (dist == 0) return 1.0f;
-        if (dist == 1) return 0.8f;
-        if (dist == 2) return 0.5f;
-        return 0.1f;
+//        if (dist == 0) return 1.0f;
+//        if (dist == 1) return 0.8f;
+//        if (dist == 2) return 0.5f;
+        return 1f;
     }
     // 🚀 [순정 3D 엔진 3] 데이터 바인딩 및 캐시 폴더 강제 입체 역추적 엔진 장착!
     // 🚀 [하이브리드 3D 바인딩 엔진] 원본과 반사판 이미지를 램 캐시와 연동하여 60fps 스크롤을 유지합니다.
@@ -6890,22 +7094,45 @@ public class MainActivity extends Activity {
                         }
                     }
                 } else if (currentScreenState == STATE_BLUETOOTH || currentScreenState == STATE_WIFI) {
-                    // 🚀 [복귀 경로 지정] 블루투스나 와이파이도 무조건 세팅 화면이 아닌, 진짜 들어왔던 곳으로 복귀!
                     changeScreen(backTargetForUtility);
                 } else if (currentScreenState == STATE_SETTINGS) {
-                    // 🚀 [라우팅 정화] 깊이를 파악하여 알맞은 상위 메뉴로 완벽 복귀!
-                    if (currentSettingsDepth == 2) {
-                        // 🚀 [버그 해결 2] 서브 모드 2번(프리셋)과 3번(그래픽 EQ 스튜디오) 모두 EQ 메인으로 안전하게 돌려보냅니다!
+
+                    // 🚀 [1단계] 라디오 설정 서브 페이지 모드라면, 라디오 메인 플레이어 모드로 먼저 탈출!
+                    if (isRadioUIShowing && isRadioSettingsMode) {
+                        isRadioSettingsMode = false;
+                        isRadioAdjustingFreq = false;
+                        buildRadioUI();
+                        clickFeedback();
+                        return true;
+                    }
+
+                    // 🚀 [버그 완벽 해결] 라디오 메인 플레이어 화면에서 뒤로 가기를 누르면 홈(메인) 화면으로 즉시 순간 이동!
+                    if (isRadioUIShowing) {
+                        isRadioUIShowing = false;
+                        isRadioSettingsMode = false;
+                        isRadioAdjustingFreq = false;
+                        changeScreen(STATE_MENU); // 메인 페이지로 복귀 신호 발사!
+                        clickFeedback();
+                        return true;
+                    }
+
+                    isRadioUIShowing = false; // 완전히 빠져나갈 때는 확실히 꺼줍니다.
+
+                    // 🚀 [라우팅 정화 완벽 복구] 깊이(Depth)를 파악하여 알맞은 상위 메뉴로 완벽하게 돌아갑니다!
+                    if (currentSettingsDepth == 0) {
+                        changeScreen(STATE_MENU); // 메인 설정창(깊이 0)이면 홈 화면으로 복귀!
+                    } else if (currentSettingsDepth == 1) {
+                        buildSettingsUI(); // 서브 메뉴창(깊이 1)이면 메인 설정창으로 1단계 복귀!
+                    } else if (currentSettingsDepth == 2) {
+                        // EQ 등의 더 깊은 창(깊이 2)에서 빠져나올 때의 처리
                         if (settingsSubMode == 2 || settingsSubMode == 3) {
                             buildEqualizerSettingsUI();
                         } else {
-                            buildDateTimeUI();
+                            buildSettingsUI();
                         }
-                    } else if (currentSettingsDepth == 1) {
-                        buildSettingsUI();
-                    } else {
-                        changeScreen(STATE_MENU);
                     }
+                    clickFeedback();
+                    return true;
                 }
                 return true;
             }
@@ -7018,19 +7245,22 @@ public class MainActivity extends Activity {
             if (c != null) {
                 if (keyCode == 21) { // 휠 위로 돌릴 때 (UP)
 
-                    // 🚀 [라디오 휠 조작 인터셉터 장착!]
-                    if (currentScreenState == STATE_SETTINGS && (isRadioAdjustingFreq || isRadioAdjustingVolume)) {
-                        com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                        if (isRadioAdjustingFreq) {
-                            float newFreq = fm.currentFreq - 0.1f; // 휠을 위로 돌리면 주파수 다운
+                    // 🚀 [라디오 휠 조작] 깜빡임 완벽 제거 버전
+                    if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
+                        if (!isRadioSettingsMode) {
+                            adjustVolume(false); // 🎧 휠 돌릴 때 볼륨만 조용히 변경! (오버레이가 뜨므로 화면 갱신 불필요)
+                            return true;
+                        } else if (isRadioAdjustingFreq) {
+                            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
+                            float newFreq = fm.currentFreq - 0.1f; // ⚙️ 설정 모드: 주파수 다운
                             if (newFreq < 87.5f) newFreq = 108.0f;
                             if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
+
+                            showRadioFreqPopup(newFreq); // 🚀 [시각화 주입] 전체 화면 팝업 전광판 발사!
+
                             buildRadioUI();
-                        } else if (isRadioAdjustingVolume) {
-                            adjustVolume(false); // 휠을 위로 돌리면 소리가 커짐! 🔊
-                            buildRadioUI();
+                            return true;
                         }
-                        return true; // 💡 휠 이동 이벤트를 여기서 파쇄하여 포커스 고정!
                     }
 
                     android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
@@ -7076,19 +7306,22 @@ public class MainActivity extends Activity {
                 }
                 if (keyCode == 22) { // 휠 아래로 돌릴 때 (DOWN)
 
-                    // 🚀 [라디오 휠 조작 인터셉터 장착!]
-                    if (currentScreenState == STATE_SETTINGS && (isRadioAdjustingFreq || isRadioAdjustingVolume)) {
-                        com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
-                        if (isRadioAdjustingFreq) {
-                            float newFreq = fm.currentFreq + 0.1f; // 휠을 아래로 돌리면 주파수 업
+                    // 🚀 [라디오 휠 조작] 깜빡임 완벽 제거 버전
+                    if (currentScreenState == STATE_SETTINGS && isRadioUIShowing) {
+                        if (!isRadioSettingsMode) {
+                            adjustVolume(true); // 🎧 휠 돌릴 때 볼륨만 조용히 변경! (오버레이가 뜨므로 화면 갱신 불필요)
+                            return true;
+                        } else if (isRadioAdjustingFreq) {
+                            com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
+                            float newFreq = fm.currentFreq + 0.1f; // ⚙️ 설정 모드: 주파수 업
                             if (newFreq > 108.0f) newFreq = 87.5f;
                             if (fm.isPowerUp) fm.tune(newFreq); else fm.currentFreq = newFreq;
+
+                            showRadioFreqPopup(newFreq); // 🚀 [시각화 주입] 전체 화면 팝업 전광판 발사!
+
                             buildRadioUI();
-                        } else if (isRadioAdjustingVolume) {
-                            adjustVolume(true); // 휠을 아래로 돌리면 소리가 작아짐!
-                            buildRadioUI();
+                            return true;
                         }
-                        return true; // 💡 휠 이동 이벤트를 여기서 파쇄하여 포커스 고정!
                     }
 
                     android.view.ViewGroup parent = (android.view.ViewGroup) c.getParent();
@@ -7302,11 +7535,13 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        // 🚀 [요청 반영 2] 하단 좌우(Prev/Next) 버튼으로 라디오 채널 이동!
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
             if (!isSeekPerformed) {
-                if (activePlayer == 1) tuneToNextSavedRadioChannel(true); // 다음 저장된 채널로!
-                else com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                if (activePlayer == 1) {
+                    tuneToNextSavedRadioChannel(true); // 🚀 깔끔하게 엔진만 호출!
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                }
                 clickFeedback();
             }
             return true;
@@ -7314,8 +7549,11 @@ public class MainActivity extends Activity {
 
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (!isSeekPerformed) {
-                if (activePlayer == 1) tuneToNextSavedRadioChannel(false); // 이전 저장된 채널로!
-                else com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                if (activePlayer == 1) {
+                    tuneToNextSavedRadioChannel(false); // 🚀 깔끔하게 엔진만 호출!
+                } else {
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                }
                 clickFeedback();
             }
             return true;
@@ -7723,36 +7961,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 💡 [추가] MP3/FLAC 파일 내부에 삽입된 앨범 아트를 띄우는 함수
-    public void applyEmbeddedCoverArt(byte[] pictureData) {
-        try {
-            android.graphics.BitmapFactory.Options optsCenter = new android.graphics.BitmapFactory.Options();
-            optsCenter.inSampleSize = 2;
-            android.graphics.Bitmap bmpCenter = android.graphics.BitmapFactory.decodeByteArray(pictureData, 0, pictureData.length, optsCenter);
-            ivAlbumArt.setImageBitmap(bmpCenter);
-
-            try {
-                int centerX = bmpCenter.getWidth() / 2;
-                int centerY = (int) (bmpCenter.getHeight() * 0.8);
-                currentAlbumColor = bmpCenter.getPixel(centerX, centerY) | 0xFF000000;
-            } catch (Exception e) {
-                currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-            }
-
-            android.graphics.BitmapFactory.Options optsBg = new android.graphics.BitmapFactory.Options();
-            optsBg.inSampleSize = 4;
-            android.graphics.Bitmap sourceBg = android.graphics.BitmapFactory.decodeByteArray(pictureData, 0, pictureData.length, optsBg);
-            android.graphics.Bitmap blurredBg = applyGaussianBlur(sourceBg);
-            ivPlayerBgBlur.setImageBitmap(blurredBg);
-            if (sourceBg != blurredBg)
-                sourceBg.recycle();
-
-            lastAlbumArtBytes = pictureData;
-            updateMainMenuBackground();
-            refreshNowPlayingPreview();
-        } catch (Exception e) {
-        }
-    }
 
     public void fetchTrackInfoFromInternet(final File track, final String originalQuery, final boolean hasValidTags,
                                            final String origTitle, final String origArtist) {
@@ -8862,6 +9070,42 @@ public class MainActivity extends Activity {
         int min = (currentMs / 1000) / 60;
         int maxMin = (totalMs / 1000) / 60;
         btn.setText(originalText + "  ⏱ [" + min + "m / " + maxMin + "m]");
+    }
+
+    // 🚀 [신규 엔진] 휠 조작 주파수 실시간 전체 화면 팝업 제어기
+    private android.os.Handler radioFreqHandler = new android.os.Handler();
+    private Runnable hideRadioFreqTask = new Runnable() {
+        @Override
+        public void run() {
+            if (layoutLoadingOverlay != null) {
+                layoutLoadingOverlay.setVisibility(View.GONE); // 팝업 닫기
+                if (pbLoadingProgress != null) pbLoadingProgress.setVisibility(View.VISIBLE); // 프로그레스 바 상태 원상 복구
+            }
+        }
+    };
+
+    private void showRadioFreqPopup(float freq) {
+        if (layoutLoadingOverlay != null) {
+            radioFreqHandler.removeCallbacks(hideRadioFreqTask);
+
+            // 🚀 [수리 1] 투명인간 버그 해결: 가상 암전 모드가 0%로 만들어버린 투명도를 다시 100%로 강제 복구합니다!
+            layoutLoadingOverlay.setAlpha(1.0f);
+            layoutLoadingOverlay.setVisibility(View.VISIBLE);
+
+            if (pbLoadingProgress != null) {
+                pbLoadingProgress.setVisibility(View.VISIBLE);
+                int progress = (int) (((freq - 87.5f) / 20.5f) * 100);
+                pbLoadingProgress.setProgress(progress);
+            }
+
+            if (tvLoadingProgress != null) {
+                tvLoadingProgress.setTextSize(30f);
+                // 🚀 [수리 2] 실수로 주석(//) 처리되어 잠들어 있던 텍스트 출력 엔진을 다시 살려냅니다!
+                tvLoadingProgress.setText(String.format(java.util.Locale.US, "Tuning Frequency...\n\n%.1f MHz", freq));
+            }
+
+            radioFreqHandler.postDelayed(hideRadioFreqTask, 1500);
+        }
     }
 }
 

@@ -124,10 +124,25 @@ public class FmRadioManager {
             return false;
         }
         try {
+            // 🚀 1. 백그라운드에 숨어있는 순정 라디오 앱들을 모두 확실하게 사살하여 점유를 해제합니다.
             Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.mediatek.FMRadio"});
             Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.innioasis.fm"});
-            Thread.sleep(200);
+            Runtime.getRuntime().exec(new String[]{"su", "-c", "killall com.android.fmradio"});
 
+            // 🚀 2. [가장 핵심!] 시스템이 꽉 쥐고 있는 FM 하드웨어 칩셋(/dev/fm)의 권한을 모든 앱이 쓸 수 있도록 강제 개방(chmod 666)합니다!
+            Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 666 /dev/fm"});
+
+            Thread.sleep(300); // 💡 권한이 적용되고 칩셋이 정신을 차릴 시간 0.3초 부여
+
+            // 🚀 3. 혹시 이전 연결이 비정상적으로 꼬여서 열려있다면, 강제로 한 번 닫아버리고 뇌관을 초기화합니다.
+            try {
+                Method closeDev = getNativeMethod("closedev");
+                closeDev.invoke(null);
+            } catch (Throwable ignore) {}
+
+            isDeviceOpen = false;
+
+            // 🚀 4. 방해물이 모두 사라진 깨끗한 상태에서 칩셋을 엽니다!
             if (!isDeviceOpen) {
                 Method openDev = getNativeMethod("opendev");
                 isDeviceOpen = (Boolean) openDev.invoke(null);
@@ -168,7 +183,6 @@ public class FmRadioManager {
         }
         return false;
     }
-
     // 2. 하드웨어 전원 끄기
     public void powerDown() {
         if (fmNativeClass == null || !isPowerUp) return;
