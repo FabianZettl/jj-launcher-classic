@@ -36,6 +36,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -152,7 +153,7 @@ public class MainActivity extends Activity {
     private void tuneToNextSavedRadioChannel(boolean isNext) {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         if (savedRadioStations.isEmpty()) {
-            Toast.makeText(this, "No saved channels.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("No saved channels."), Toast.LENGTH_SHORT).show();
             return;
         }
         float target = savedRadioStations.get(0);
@@ -200,7 +201,10 @@ public class MainActivity extends Activity {
     private boolean isWidgetAlbumOn = false;
     private boolean isWidgetAnalogClockOn = false;
     private boolean isWidgetCircularBatteryOn = false;
-    private LinearLayout layoutWidgets;
+
+    // 🚀 [신규 엔진 제어 변수] 리스트 박스 숨김 및 루프 스크롤 스위치
+
+    private boolean isLoopScrollOn = true; // 💡 기본적으로 무한 루프가 작동하도록 true 장전!
     private TextView tvWidgetClock;
     // 🚀 [수정] 가로형 바(Bar) 클래스로 이름 변경!
     private WidgetBatteryBarView widgetBatteryView;
@@ -264,6 +268,9 @@ public class MainActivity extends Activity {
     private static final int BROWSER_PLAYLISTS = 6;
     private static final int BROWSER_M3U_SONGS = 7;
     private static final int BROWSER_AUDIOBOOKS = 8; // 🚀 [추가] 오디오북 브라우저 상태 가동
+    // 🚀 [신규 상수 등록] 겹치지 않는 고유 번호로 연도와 장르 상태 스위치를 장전합니다.
+    private static final int BROWSER_YEARS = 10;
+    private static final int BROWSER_GENRES = 11;
     // 🚀 [신규 추가] 커버 플로우 상태 상수 및 데이터 저장소
 //    private static final int BROWSER_COVER_FLOW = 9;
 //    private java.util.List<SongItem> uniqueAlbumList = new java.util.ArrayList<>();
@@ -348,6 +355,13 @@ public class MainActivity extends Activity {
             "!", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", ".", "?",
             "[DEL]", "[CONN]"
     };
+
+    private android.media.RemoteControlClient remoteControlClient;
+    private android.content.ComponentName mediaButtonReceiver;
+
+
+
+    private boolean wasWifiOnBeforeSleep = false;
     private int keyboardIndex = 0;
     private String targetWifiSsid = "";
     private String typedPassword = "";
@@ -387,8 +401,14 @@ public class MainActivity extends Activity {
     private int currentTimeoutIndex = 1;
     private final int[] TIMEOUT_VALUES = { 15000, 30000, 60000, 300000 };
     private final String[] TIMEOUT_NAMES = { "15 Sec", "30 Sec", "1 Min", "5 Min" };
-
+    private TextView tvFocusPreviewClock; // 🚀 [신규 엔진] 라이브 프리뷰 상자 내부에서 째깍거릴 디지털 시계
     private ImageView ivWidgetFocusImage; // 🚀 [추가] 다이내믹 포커스 위젯 변수
+
+    // 🚀 [신규 엔진 변수] 기존 위젯의 몸체와 원래 좌표를 기억해 둘 백업 금고
+    private LinearLayout layoutWidgetAlbumContainer; // 앨범 위젯 덩어리 주소
+
+    // 🚀 [추가] 모든 위젯의 메모리를 전역에서 관리할 통합 주소록
+    public java.util.HashMap<View, ThemeManager.MenuElement> widgetViewRegistry = new java.util.HashMap<>();
     private int currentSystemBrightness = 255;
 
     private List<String> foundBtDevices = new ArrayList<String>();
@@ -404,13 +424,16 @@ public class MainActivity extends Activity {
     private Runnable clockTask = new Runnable() {
         @Override
         public void run() {
-            // 🚀 [수정 완료] 전역 스위치 값에 따라 12시간(hh:mm a) 또는 24시간(HH:mm) 포맷을 동적으로 장전합니다.
             String timeFormat = is24HourFormat ? "HH:mm" : "hh:mm a";
             SimpleDateFormat sdf = new SimpleDateFormat(timeFormat, Locale.US);
             tvStatusClock.setText(sdf.format(new Date()));
 
-            if (isWidgetClockOn)
-                refreshWidgets();
+            // 🚀 [라이브 엔진] 프리뷰 내부 시계가 화면에 노출 중(VISIBLE)이라면 매초 실시간으로 시간을 갈아끼워 째깍이게 만듭니다!
+            if (tvFocusPreviewClock != null && tvFocusPreviewClock.getVisibility() == View.VISIBLE) {
+                tvFocusPreviewClock.setText(sdf.format(new Date()));
+            }
+
+            refreshWidgets(); // 홈 스크린 위젯 동시 새로고침
             clockHandler.postDelayed(this, 1000);
         }
     };
@@ -438,6 +461,30 @@ public class MainActivity extends Activity {
     public String t(String text) {
         return com.themoon.y1.managers.LanguageManager.getInstance(this).t(text);
     }
+
+    // 🚀 [지능형 와이파이 절전 엔진]
+    private void autoManageWifiPower(boolean isGoingToSleep) {
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wm == null) return;
+
+        if (isGoingToSleep) {
+            // 💡 잠들 때: 웹 서버가 돌고 있지 않다면 와이파이 강제 차단!
+            if (wm.isWifiEnabled()) {
+                wasWifiOnBeforeSleep = true; // 원래 켜져 있었다고 기억장치에 저장
+                if (!isServerRunning) {
+                    wm.setWifiEnabled(false);
+                }
+            } else {
+                wasWifiOnBeforeSleep = false;
+            }
+        } else {
+            // 💡 깰 때: 잠들기 전에 켜져 있었던 경우에만 다시 와이파이 전원 ON!
+            if (wasWifiOnBeforeSleep && !wm.isWifiEnabled()) {
+                wm.setWifiEnabled(true);
+            }
+        }
+    }
+    
     public void turnOffScreen() {
         com.themoon.y1.managers.FmRadioManager fm = com.themoon.y1.managers.FmRadioManager.getInstance(this);
         if (fm.isPowerUp || activePlayer == 1) {
@@ -445,6 +492,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     isFakeScreenOff = true;
+                    autoManageWifiPower(true); // 🚀 [절전 모드 진입]
                     if (layoutLoadingOverlay != null) {
                         layoutLoadingOverlay.setBackgroundColor(0xFF000000); // 100% 완전 블랙 암전 덮개
                         if (pbLoadingProgress != null) pbLoadingProgress.setVisibility(View.GONE);
@@ -654,9 +702,11 @@ public class MainActivity extends Activity {
 
             if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                 isScreenSleeping = true;
+                autoManageWifiPower(true); // 🚀 [절전 모드 진입]
             } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
                 isScreenSleeping = false;
                 lastScreenOnTime = System.currentTimeMillis();
+                autoManageWifiPower(false); // 🚀 [절전 모드 해제]
             } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
@@ -761,14 +811,14 @@ public class MainActivity extends Activity {
 
                 // 🚀 [순정 이식: 좀비 로직 1] 에어팟이 오디오를 튕겨내면? 0.1초 만에 엔진 재호출!
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Toast.makeText(context, "Audio Disconnected", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
                     if (targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
                         connectBluetoothAudio(targetDeviceForAudio);
                     }
                 } else if (profileState == BluetoothProfile.STATE_CONNECTED) {
                     String name = currentDevice != null ? currentDevice.getName() : "Unknown";
-                    Toast.makeText(context, "Audio Connected to " + name, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, t("Audio Connected to ") + name, Toast.LENGTH_SHORT).show();
                 }
 
                 if (profileState == BluetoothProfile.STATE_CONNECTED
@@ -838,7 +888,7 @@ public class MainActivity extends Activity {
 
         // 3. 페어링이 안 되어 있다면 페어링부터 꽂습니다! (완료되면 수신기가 이 함수를 다시 부릅니다)
         if (targetDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
-            Toast.makeText(this, "Pairing with " + targetDevice.getName() + "...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Pairing with ") + targetDevice.getName() + "...", Toast.LENGTH_SHORT).show();
             try {
                 targetDevice.getClass().getMethod("createBond").invoke(targetDevice);
             } catch (Exception e) {
@@ -846,7 +896,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        Toast.makeText(this, "Connecting Audio...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, t("Connecting Audio..."), Toast.LENGTH_SHORT).show();
 
         // 4. 엔진이 살아있으면 즉시 연결, 죽어있으면 백그라운드에서 살려낸 뒤 연결!
         if (globalA2dp != null) {
@@ -915,16 +965,16 @@ public class MainActivity extends Activity {
             }
             
             if (connectMethod == null) {
-                Toast.makeText(this, "Audio connection error: connect method not found", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, t("Audio connection error: connect method not found"), Toast.LENGTH_LONG).show();
                 return;
             }
             
             connectMethod.setAccessible(true);
             boolean result = (Boolean) connectMethod.invoke(globalA2dp, targetDevice);
             if (!result) {
-                Toast.makeText(this, "Audio connection rejected by system.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Audio connection rejected by system."), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Audio connection initiated.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Audio connection initiated."), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -939,6 +989,82 @@ public class MainActivity extends Activity {
             }
             Toast.makeText(this, "Audio error: " + errorStr, Toast.LENGTH_LONG).show();
         }
+    }
+    // 초기화 함수 내부 (앱 실행 시 1회 호출)
+    public void initRemoteControlClient(android.content.Context context) {
+        if (remoteControlClient == null) {
+            android.media.AudioManager audioManager = (android.media.AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+            // 우리가 이전에 만들어둔 미디어 버튼 수신기(MediaBtnReceiver)를 연결합니다.
+            mediaButtonReceiver = new android.content.ComponentName(context.getPackageName(), MainActivity.MediaBtnReceiver.class.getName());
+            audioManager.registerMediaButtonEventReceiver(mediaButtonReceiver);
+
+            // 리모컨 클라이언트를 위한 인텐트 생성
+            android.content.Intent mediaButtonIntent = new android.content.Intent(android.content.Intent.ACTION_MEDIA_BUTTON);
+            mediaButtonIntent.setComponent(mediaButtonReceiver);
+            android.app.PendingIntent mediaPendingIntent = android.app.PendingIntent.getBroadcast(context, 0, mediaButtonIntent, 0);
+
+            // 🚀 젤리빈 전용 방송국 개국!
+            remoteControlClient = new android.media.RemoteControlClient(mediaPendingIntent);
+
+            // 차량 핸들 및 블루투스 기기에서 무슨 버튼을 누를 수 있는지 권한 부여
+            int flags = android.media.RemoteControlClient.FLAG_KEY_MEDIA_PLAY
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PAUSE
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PLAY_PAUSE
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_NEXT
+                    | android.media.RemoteControlClient.FLAG_KEY_MEDIA_PREVIOUS;
+            remoteControlClient.setTransportControlFlags(flags);
+
+            audioManager.registerRemoteControlClient(remoteControlClient);
+        }
+    }
+
+    // 🚀 곡이 바뀔 때 호출!
+    public void updateBluetoothMetadata(String title, String artist, String album, android.graphics.Bitmap albumArtBmp) {
+        if (remoteControlClient == null) return;
+
+        android.media.RemoteControlClient.MetadataEditor editor = remoteControlClient.editMetadata(true);
+
+        // 1. 텍스트 정보 입력 (젤리빈은 MediaMetadataRetriever의 상수를 가져다 씁니다)
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE, title != null ? title : "Unknown Title");
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST, artist != null ? artist : "Unknown Artist");
+        editor.putString(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM, album != null ? album : "Unknown Album");
+
+        // 2. 🚀 [핵심] 앨범 아트 비트맵을 차량 디스플레이로 전송!
+        if (albumArtBmp != null) {
+            editor.putBitmap(android.media.RemoteControlClient.MetadataEditor.BITMAP_KEY_ARTWORK, albumArtBmp);
+        }
+
+        // 포장 완료 후 시스템에 전송
+        editor.apply();
+    }
+
+    // 🚀 음악이 재생되거나 정지될 때 호출!
+    public void updateBluetoothPlaybackState(boolean isPlaying) {
+        if (remoteControlClient == null) return;
+
+        int state = isPlaying ? android.media.RemoteControlClient.PLAYSTATE_PLAYING : android.media.RemoteControlClient.PLAYSTATE_PAUSED;
+
+        // 젤리빈은 현재 시간(currentPosition)을 쏘지 않아도 차량에서 자체적으로 타이머를 돌려줍니다.
+        remoteControlClient.setPlaybackState(state);
+    }
+
+    // 🚀 [신규 도우미] 현재 화면의 곡 정보와 이미지를 읽어서 블루투스로 쏘는 함수
+    private void sendBluetoothMetaToCar() {
+        String title = tvPlayerTitle != null ? tvPlayerTitle.getText().toString() : "Unknown";
+        String artist = tvPlayerArtist != null ? tvPlayerArtist.getText().toString() : "Unknown";
+        android.graphics.Bitmap bmp = null;
+
+        // 앨범 아트가 있으면 블루투스 전송 용량에 맞게 살짝 압축해서 보냅니다.
+        if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
+            try {
+                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                opts.inSampleSize = 2;
+                bmp = android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, opts);
+            } catch (Exception e) {}
+        }
+
+        updateBluetoothMetadata(title, artist, "Y1 Player", bmp);
     }
 
     @Override
@@ -1018,7 +1144,7 @@ public class MainActivity extends Activity {
 
         // 2. 실시간 숫자를 쏴줄 텍스트뷰
         tvLoadingProgress = new TextView(this);
-        tvLoadingProgress.setText("Preparing to scan...\nPlease wait.");
+        tvLoadingProgress.setText(t("Preparing to scan...\nPlease wait."));
         tvLoadingProgress.setTextColor(0xFFFFFFFF);
         tvLoadingProgress.setTextSize(18);
         tvLoadingProgress.setGravity(android.view.Gravity.CENTER);
@@ -1046,10 +1172,14 @@ public class MainActivity extends Activity {
         // 🚀 [시스템 공식 등록] 화면이 꺼져도 버튼 신호를 받을 수 있도록 수신기를 장착합니다!
         ComponentName componentName = new ComponentName(getPackageName(), MediaBtnReceiver.class.getName());
         audioManager.registerMediaButtonEventReceiver(componentName);
-
+// 🚀 [블루투스 엔진 시동] 젤리빈 AVRCP 방송국 개국!
+        initRemoteControlClient(this);
         prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
 
-        // 🚀 [신규 언어 엔진 초기화] 저장된 언어 파일명을 불러와 번역기를 가동합니다!
+        // 🚀 1. 가장 먼저! APK 안에 숨겨둔 언어팩(.json)들을 기기로 싹 풀어줍니다.
+        installBundledLanguages();
+
+        // 🚀 2. 그 다음 언어 엔진을 가동하여 풀려난 파일 중 사용자가 선택한 언어를 읽어옵니다.
         String savedLang = prefs.getString("app_language", "English (Default)");
         com.themoon.y1.managers.LanguageManager.getInstance(this).applyLanguage(savedLang);
         // 🚀 [테마 파일 동적 로드] 기기 내부의 폴더에서 테마 파일들을 읽어옵니다!
@@ -1059,7 +1189,23 @@ public class MainActivity extends Activity {
         installBundledThemes();
 
         ThemeManager.loadThemesFromStorage(themeFolder);
+        try {
+            // 🚀 [블루투스 AVRCP 1.6 강제 주입 엔진]
+            // 개발자 옵션이 막혀있으므로, su 권한을 통해 ADB 쉘 명령어를 시스템에 직접 다이렉트로 쏩니다.
+            String cmd1 = "setprop persist.bluetooth.avrcpversion 1.6";
+            String cmd2 = "settings put global bluetooth_avrcp_version 1.6";
 
+            // 두 명령어를 &&(AND)로 묶어 연달아 실행하고 시스템을 동기화(sync)합니다.
+            String combinedCmd = cmd1 + " && " + cmd2 + " && sync";
+
+            Process proc = Runtime.getRuntime().exec(new String[]{"su", "-c", combinedCmd});
+            proc.waitFor(); // 명령어 적용이 끝날 때까지 잠시 대기
+
+            // 조용히 적용하기 위해 토스트는 테스트가 끝나면 지우셔도 됩니다.
+            // Toast.makeText(this, "Bluetooth AVRCP 1.6 forced via Root.", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         try {
             // 저장된 인덱스 번호를 불러옵니다. (파일이 지워졌을 수도 있으니 안전하게 처리됨)
             int savedThemeIndex = prefs.getInt("app_theme_index", 0);
@@ -1182,7 +1328,9 @@ public class MainActivity extends Activity {
             isWidgetFocusImageOn = prefs.getBoolean("widget_focus_image", false); // 🚀 [추가] 상태 불러오기
         } catch (Exception e) {
         }
+// 🚀 신규 스위치들의 기존 세팅값을 기억 금고에서 복원합니다.
 
+        isLoopScrollOn = prefs.getBoolean("loop_scroll_on", true);
         updateMainMenuBackground(); // 💡 앱을 켜면 저장된 상태에 맞춰 배경 자동 적용
 
         layoutBrowserMode = findViewById(R.id.layout_browser_mode);
@@ -1561,7 +1709,7 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 if (currentPlaylist.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("No music is currently playing."), Toast.LENGTH_SHORT).show();
                 } else {
                     changeScreen(STATE_PLAYER);
                 }
@@ -1716,10 +1864,13 @@ public class MainActivity extends Activity {
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
 
-                    // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값(파일 이름)을 먼저 장전해 둡니다!
-                    String title = f.getName();
-                    String artist = "Unknown Artist";
-                    String album = "Unknown Album";
+
+                    // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값들을 먼저 장전해 둡니다!
+                    String title = f.getName(); // 제목이 없으면 파일 이름으로 대체!
+                    String artist = t("Unknown Artist"); // 🚀 번역기 장착!
+                    String album = t("Unknown Album");   // 🚀 번역기 장착!
+                    String year = t("Unknown Year");     // 🚀 번역기 장착!
+                    String genre = t("Unknown Genre");   // 🚀 번역기 장착!
                     int trackNum = 0;
 
                     try {
@@ -1731,11 +1882,15 @@ public class MainActivity extends Activity {
                         String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
                         String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
                         String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
+                        String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE에 연도가 들어있습니다.
+                        String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
 
-                        // 태그가 존재할 때만 기본값을 덮어씌웁니다.
+                        // 🚀 태그가 존재할 때만 "Unknown..." 기본값을 실제 데이터로 덮어씌웁니다!
                         if (t != null && !t.trim().isEmpty()) title = t;
                         if (a != null && !a.trim().isEmpty()) artist = a;
                         if (al != null && !al.trim().isEmpty()) album = al;
+                        if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 연도 덮어쓰기
+                        if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 장르 덮어쓰기
 
                         if (trackStr != null && !trackStr.isEmpty()) {
                             try {
@@ -1751,8 +1906,8 @@ public class MainActivity extends Activity {
                     }
 
                     // 🚀 [핵심 해결] 안전지대(try-catch 밖)에서 바구니에 담습니다.
-                    // 에러가 났어도 장전해 둔 기본값(f.getName())으로 정상 추가됩니다!
-                    targetLibrary.add(new SongItem(f, title, artist, album));
+                    // 에러가 났어도 장전해 둔 기본값("Unknown Artist" 등)으로 정상 추가되어 분류됩니다!
+                    targetLibrary.add(new SongItem(f, title, artist, album, year, genre)); // 💡 6개 꽉 채우기 완료!
                     trackNumberMap.put(f.getAbsolutePath(), trackNum);
 
                     scannedAudioFiles++;
@@ -1781,7 +1936,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 if (pbLoadingProgress != null) pbLoadingProgress.setProgress(0);
-                if (tvLoadingProgress != null) tvLoadingProgress.setText("Counting files...\nPlease wait.");
+                if (tvLoadingProgress != null) tvLoadingProgress.setText(t("Counting files...\nPlease wait."));
                 showLoadingPopup();
             }
         });
@@ -1823,7 +1978,7 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         isCustomScanning = false;
-                        Toast.makeText(MainActivity.this, "Scan Complete! Music: " + customLibrary.size() + ", Books: " + audiobookLibrary.size(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, t("Scan Complete! Music")+": " + customLibrary.size()+" " + t("Books: ") + audiobookLibrary.size(), Toast.LENGTH_SHORT).show();
 
                         if (currentScreenState == STATE_BROWSER) {
                             if (currentBrowserMode == BROWSER_ROOT) buildFileBrowserUI();
@@ -1873,44 +2028,40 @@ public class MainActivity extends Activity {
     private void refreshWidgets() {
         // 1. 디지털 시계 위젯 업데이트
         if (tvWidgetClock != null) {
-            tvWidgetClock.setVisibility(isWidgetClockOn ? View.VISIBLE : View.GONE);
-            if (tvWidgetClock != null) {
-                float d = getResources().getDisplayMetrics().density;
+            ThemeManager.MenuElement el = widgetViewRegistry.get(tvWidgetClock);
+            // 🚀 [핵심 방어막] 이 위젯이 특정 버튼을 감시 중(visibleOnFocus)이라면, 설정 스위치로 전원을 강제 종료하지 않습니다!
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                tvWidgetClock.setVisibility(isWidgetClockOn ? View.VISIBLE : View.GONE);
+            }
 
-                // 🚀 [해결책 1] 텍스트뷰의 '기본 도화지 크기'를 2.1배 뻥튀기한 시간 기준으로 넓게 잡습니다!
-                // 이렇게 해야 안드로이드가 위아래 높이를 넉넉하게 확보해서 글씨가 안 잘립니다.
+            // 💡 화면에 보일 때(VISIBLE)만 시간을 새로고침하여 과부하 방지
+            if (tvWidgetClock.getVisibility() == View.VISIBLE) {
+                float d = getResources().getDisplayMetrics().density;
                 tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (currentClockSize * 2.1f) * d);
                 tvWidgetClock.setLineSpacing(0, 1.1f);
 
                 java.util.Date now = new java.util.Date();
-
-                // 🚀 [수정 완료] 위젯 디지털 시계의 포맷도 상태바와 완벽하게 동기화시킵니다!
                 String widgetTimeFormat = is24HourFormat ? "HH:mm" : "hh:mm";
                 java.text.SimpleDateFormat sdfTime = new java.text.SimpleDateFormat(widgetTimeFormat, java.util.Locale.US);
-
                 java.text.SimpleDateFormat sdfDate = new java.text.SimpleDateFormat("EEE, MMM dd", java.util.Locale.US);
                 String timeStr = sdfTime.format(now);
                 String dateStr = sdfDate.format(now);
-
                 String fullText = timeStr + "\n" + dateStr;
 
                 android.text.SpannableString spannable = new android.text.SpannableString(fullText);
-
-                // 🚀 [해결책 2] 시간(timeStr)은 이미 크니까 놔두고, 날짜(dateStr)를 축소시킵니다.
-                // 2.1배로 키운 걸 원래 크기로 되돌리려면 약 0.47배(47%)로 줄이면 에디터와 딱 맞습니다!
                 spannable.setSpan(new android.text.style.RelativeSizeSpan(0.47f), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-                // 날짜 굵기 일반으로 빼기
                 spannable.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.NORMAL), timeStr.length() + 1, fullText.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
                 tvWidgetClock.setText(spannable);
             }
         }
 
         // 2. 막대형 배터리 위젯 업데이트
         if (widgetBatteryView != null) {
-            widgetBatteryView.setVisibility(isWidgetBatteryOn ? View.VISIBLE : View.GONE);
-            if (isWidgetBatteryOn) {
+            ThemeManager.MenuElement el = widgetViewRegistry.get(widgetBatteryView);
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                widgetBatteryView.setVisibility(isWidgetBatteryOn ? View.VISIBLE : View.GONE);
+            }
+            if (widgetBatteryView.getVisibility() == View.VISIBLE) {
                 widgetBatteryView.setColor(ThemeManager.getTextColorPrimary());
                 Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
                 if (batteryIntent != null) {
@@ -1926,11 +2077,15 @@ public class MainActivity extends Activity {
         // 3. 앨범 프리뷰 위젯 업데이트
         if (ivWidgetAlbum != null && tvWidgetAlbumTitle != null && tvWidgetAlbumArtist != null) {
             View parent = (View) ivWidgetAlbum.getParent();
-            if (parent != null) parent.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
+            ThemeManager.MenuElement el = widgetViewRegistry.get(parent);
 
-            if (isWidgetAlbumOn) {
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                if (parent != null) parent.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
+            }
+
+            // 🚀 [해결] 설정 스위치(isWidgetAlbumOn)가 꺼져있더라도, 지금 화면에 보이고만 있다면 무조건 데이터를 쏴줍니다!
+            if (parent != null && parent.getVisibility() == View.VISIBLE) {
                 tvWidgetAlbumTitle.setText(tvPlayerTitle != null ? tvPlayerTitle.getText() : "");
-
                 tvWidgetAlbumArtist.setText(tvPlayerArtist != null ? tvPlayerArtist.getText() : "");
 
                 if (lastAlbumArtBytes != null) {
@@ -1946,27 +2101,26 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 🚀 4. 아날로그 시계 위젯 업데이트 (여기서 스위치 값에 따라 끄고 켭니다!)
+        // 4. 아날로그 시계 업데이트
         if (customAnalogClockView != null) {
-            View parent = (View) customAnalogClockView.getParent();
-            if (parent != null && "analog_wrapper".equals(parent.getTag())) {
-                parent.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
-            } else {
-                customAnalogClockView.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
+            ThemeManager.MenuElement el = widgetViewRegistry.get(customAnalogClockView);
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                View parent = (View) customAnalogClockView.getParent();
+                if (parent != null && "analog_wrapper".equals(parent.getTag())) parent.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
+                else customAnalogClockView.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
             }
         }
 
-        // 🚀 5. 원형 배터리 위젯 업데이트 (여기서 스위치 값에 따라 끄고 켭니다!)
+        // 5. 원형 배터리 위젯 업데이트
         if (customCircularBatteryView != null) {
-            View parent = (View) customCircularBatteryView.getParent();
-            if (parent != null && "circular_wrapper".equals(parent.getTag())) {
-                parent.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
-            } else {
-                customCircularBatteryView.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
+            ThemeManager.MenuElement el = widgetViewRegistry.get(customCircularBatteryView);
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                View parent = (View) customCircularBatteryView.getParent();
+                if (parent != null && "circular_wrapper".equals(parent.getTag())) parent.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
+                else customCircularBatteryView.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
             }
 
-            // 켜져 있을 때만 배터리 잔량을 업데이트합니다.
-            if (isWidgetCircularBatteryOn) {
+            if (customCircularBatteryView.getVisibility() == View.VISIBLE) {
                 Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
                 if (batteryIntent != null) {
                     int level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
@@ -1976,8 +2130,12 @@ public class MainActivity extends Activity {
                     if(level != -1 && scale != -1) customCircularBatteryView.setBatteryLevel((int) ((level / (float) scale) * 100), isCharging);
                 }
             }
-            // 🚀 6. 신규: 다이내믹 포커스 이미지 위젯 업데이트
-            if (ivWidgetFocusImage != null) {
+        }
+
+        // 6. 다이내믹 포커스 이미지 위젯 업데이트
+        if (ivWidgetFocusImage != null) {
+            ThemeManager.MenuElement el = widgetViewRegistry.get(ivWidgetFocusImage);
+            if (el == null || el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
                 ivWidgetFocusImage.setVisibility(isWidgetFocusImageOn ? View.VISIBLE : View.GONE);
             }
         }
@@ -2178,7 +2336,7 @@ public class MainActivity extends Activity {
         } else {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             if (wm == null || !wm.isWifiEnabled()) {
-                Toast.makeText(this, "Please turn ON Wi-Fi first", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Please turn ON Wi-Fi first"), Toast.LENGTH_SHORT).show();
                 return;
             }
             webServer = new Y1WebServer(getApplicationContext(), rootFolder);
@@ -2614,7 +2772,7 @@ public class MainActivity extends Activity {
     }
 
     private void connectToWifi() {
-        Toast.makeText(this, "Connecting to " + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, t("Connecting to ") + targetWifiSsid + "...", Toast.LENGTH_SHORT).show();
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wm != null) {
             WifiConfiguration conf = new WifiConfiguration();
@@ -2672,7 +2830,7 @@ public class MainActivity extends Activity {
                         ba.disable();
                     else
                         ba.enable();
-                    ((TextView) btnToggle.getChildAt(1)).setText("Wait...");
+                    ((TextView) btnToggle.getChildAt(1)).setText(t("Wait..."));
                 }
             }
         });
@@ -2757,7 +2915,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        String prefix = isConnected ? "🎧 [CONNECTED] " : "✔ ";
+        String prefix = isConnected ? "((♪)) [CONNECTED] " : "✔ ";
         final Button btnDevice = createListButton(prefix + name);
 
         if (isConnected) {
@@ -2774,9 +2932,10 @@ public class MainActivity extends Activity {
 
         // 🚀 [치명적 버그 수정] 서브 메뉴용 투명 폴더(LinearLayout)를 박살내고 리스트에 직속으로 붙입니다!
 
-        // 서브 메뉴 1: 연결 버튼
-        final Button btnConnect = createListButton("   ▶ " + t("Connect Audio"));
-        btnConnect.setTextColor(0xFFFFFFFF);
+        // 🚀 [하이브리드 엔진 연동] 오디오 연결 유니코드("\uE1B1")와 흰색(0xFFFFFFFF)을 주입합니다.
+        // (※ 주의: 리턴 타입이 Button에서 android.view.View로 변경됩니다)
+        final android.view.View btnConnect = createListButtonWithIcon("\uE1B1", t("Connect Audio"), 0xFFFFFFFF);
+
         btnConnect.setVisibility(View.GONE); // 초기엔 숨겨둡니다.
         btnConnect.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -2786,9 +2945,10 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 서브 메뉴 2: 삭제 버튼
-        final Button btnUnpair = createListButton("   🗑 " + t("Delete Device"));
-        btnUnpair.setTextColor(0xFFFF5555);
+        // 🚀 [하이브리드 엔진 연동] 쓰레기통 유니코드("\uE872")와 빨간색(0xFFFF5555)을 주입합니다.
+        // (※ 주의: 리턴 타입이 Button에서 android.view.View로 변경됩니다)
+        final android.view.View btnUnpair = createListButtonWithIcon("\uE872", t("Delete Device"), 0xFFFF5555);
+
         btnUnpair.setVisibility(View.GONE); // 초기엔 숨겨둡니다.
         btnUnpair.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -2796,7 +2956,7 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 try {
                     device.getClass().getMethod("removeBond").invoke(device);
-                    Toast.makeText(MainActivity.this, "Device Deleted.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("Device Deleted."), Toast.LENGTH_SHORT).show();
                     startBluetoothScan(); // 삭제 후 화면 새로고침
                 } catch (Exception e) {
                 }
@@ -2938,7 +3098,7 @@ public class MainActivity extends Activity {
         } else {
             LinearLayout btnToggle = (LinearLayout) existingToggle;
             TextView tvRight = (TextView) btnToggle.getChildAt(1);
-            tvRight.setText(statusText);
+            tvRight.setText(t(statusText));
             if (!btnToggle.hasFocus()) {
                 if (statusText.equals("ON"))
                     tvRight.setTextColor(0xFFFFFFFF);
@@ -3121,7 +3281,9 @@ public class MainActivity extends Activity {
                     ((TextView) layout.getChildAt(0)).setTextColor(ThemeManager.getTextColorPrimary());
                     TextView rightTv = (TextView) layout.getChildAt(1);
                     String currentText = rightTv.getText().toString();
-                    if (currentText.equals("ON") || currentText.equals("ONE") || currentText.equals("ALL"))
+
+                    // 🚀 [버그 수리] SHOW 상태인 글자도 회색으로 오염되지 않고 기본 주 글자색(흰색)을 유지하도록 방어막 체결!
+                    if (currentText.equals("ON") || currentText.equals("ONE") || currentText.equals("ALL") || currentText.equals(t("SHOW")))
                         rightTv.setTextColor(ThemeManager.getTextColorPrimary());
                     else
                         rightTv.setTextColor(ThemeManager.getTextColorSecondary());
@@ -3136,8 +3298,13 @@ public class MainActivity extends Activity {
 
         return layout;
     }
-    // 🚀 [신규 엔진] 머티리얼 아이콘 폰트와 일반 텍스트를 깨짐 없이 결합하는 하이브리드 버튼 생성기
+    // 🚀 [추가 엔진] 기존 코드들이 에러 나지 않도록, 색상 지정을 안 하면 자동으로 0(기본 테마색)을 넘겨주는 보조 함수입니다!
     private android.view.View createListButtonWithIcon(String iconUnicode, String textLabel) {
+        return createListButtonWithIcon(iconUnicode, textLabel, 0);
+    }
+
+    // 🚀 [메인 엔진 업그레이드] 세 번째 파라미터로 'customColor(도색할 색상)'을 받도록 개조되었습니다.
+    private android.view.View createListButtonWithIcon(String iconUnicode, String textLabel, final int customColor) {
         float d = getResources().getDisplayMetrics().density;
 
         final android.widget.LinearLayout rowButton = new android.widget.LinearLayout(this);
@@ -3148,23 +3315,23 @@ public class MainActivity extends Activity {
         rowButton.setSoundEffectsEnabled(false);
         rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
 
-        // 🚀 [수정 1] 패딩(내부 여백)을 일반 버튼과 완전히 똑같은 수치(12dp)로 고정합니다!
         int padLeft = (int)(25 * d);
         int padTopBottom = (int)(12 * d);
         int padRight = (int)(10 * d);
         rowButton.setPadding(padLeft, padTopBottom, padRight, padTopBottom);
 
-        // 🚀 [수정 2] 마진(외부 간격)을 일반 버튼의 (0, 2, 0, 2) 픽셀 마진과 완벽하게 일치시킵니다!
         android.widget.LinearLayout.LayoutParams rowLp = new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         rowLp.setMargins(0, 2, 0, 2);
         rowButton.setLayoutParams(rowLp);
 
+        // 💡 [핵심 기술] 사용자가 색상을 지정했다면 그 색상을, 지정 안 했다면 테마 기본색을 변수에 장전합니다!
+        final int normalColor = (customColor != 0) ? customColor : ThemeManager.getTextColorPrimary();
+
         final android.widget.TextView tvIcon = new android.widget.TextView(this);
         tvIcon.setText(iconUnicode);
-        // 🚀 [수정 3] 아이콘 크기가 혼자 뚱뚱해져서 버튼 천장을 밀어내는 것을 막기 위해 22f -> 20f로 살짝 다이어트!
         tvIcon.setTextSize(21f);
-        tvIcon.setTextColor(ThemeManager.getTextColorPrimary());
+        tvIcon.setTextColor(normalColor); // 🚀 지정된 색상으로 도색!
 
         if (materialIconFont == null) {
             try { materialIconFont = android.graphics.Typeface.createFromAsset(getAssets(), "fonts/MaterialIcons-Regular.ttf"); }
@@ -3180,7 +3347,7 @@ public class MainActivity extends Activity {
         final android.widget.TextView tvText = new android.widget.TextView(this);
         tvText.setText(textLabel);
         tvText.setTextSize(18f);
-        tvText.setTextColor(ThemeManager.getTextColorPrimary());
+        tvText.setTextColor(normalColor); // 🚀 텍스트도 똑같이 도색!
         tvText.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
 
         android.widget.LinearLayout.LayoutParams textLp = new android.widget.LinearLayout.LayoutParams(
@@ -3199,16 +3366,16 @@ public class MainActivity extends Activity {
                     tvText.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     showFastScrollLetter(tvText.getText().toString());
                 } else {
+                    // 🚀 [포커스 복구 버그 완전 해결] 포커스가 빠져나갈 때 흰색으로 리셋되지 않고, 처음에 칠했던 색상으로 정확히 복귀합니다!
                     rowButton.setBackground(createButtonBackground(ThemeManager.getListButtonNormalBg()));
-                    tvIcon.setTextColor(ThemeManager.getTextColorPrimary());
-                    tvText.setTextColor(ThemeManager.getTextColorPrimary());
+                    tvIcon.setTextColor(normalColor);
+                    tvText.setTextColor(normalColor);
                 }
             }
         });
 
         return rowButton;
     }
-
 
     public Button createListButton(String text) {
         final Button btn = new Button(this);
@@ -3324,17 +3491,15 @@ public class MainActivity extends Activity {
         });
         containerSettingsItems.addView(btnRepeat);
 
-        // 💡 [개조] 이퀄라이저 단방향 버튼을 서브 페이지 진입 라우터로 업그레이드!
+        // 🚀 1. 메인 설정창 EQ 표시
         String eqDisplayName = "Normal";
         if (currentEqProfile.startsWith("preset_")) {
             int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-            if (pIdx < eqPresetNames.size()) eqDisplayName = eqPresetNames.get(pIdx);
+            if (pIdx < eqPresetNames.size()) eqDisplayName = t(eqPresetNames.get(pIdx)); // 🚀 OS 데이터를 번역기로!
         } else {
-            eqDisplayName = currentEqProfile.replace("custom_", "") + " (User)";
+            eqDisplayName = currentEqProfile.replace("custom_", ""); // 🚀 꼬리표도 번역!
         }
-
-        // 🔄 이렇게 수정해 주세요!
-        final LinearLayout btnEq = createSettingRow("Equalizer & Audio Effects", t(eqDisplayName) + " 〉");
+        final LinearLayout btnEq = createSettingRow("Equalizer & Audio Effects", eqDisplayName + " 〉");
 
         btnEq.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3366,7 +3531,7 @@ public class MainActivity extends Activity {
                 com.themoon.y1.managers.AudioPlayerManager.getInstance().setPlaybackSpeed(speedValues[nextIdx]);
 
                 TextView tvStatus = (TextView) btnSpeed.getChildAt(1);
-                tvStatus.setText(speedLabels[nextIdx]);
+                tvStatus.setText(t(speedLabels[nextIdx])); // 🚀 클릭할 때도 반드시 번역기 t()를 거치도록 수정!
                 android.widget.Toast.makeText(MainActivity.this, t("Speed set to ") + t(speedLabels[nextIdx]), android.widget.Toast.LENGTH_SHORT).show();
             }
         });
@@ -3425,17 +3590,43 @@ public class MainActivity extends Activity {
             }
         });
         containerSettingsItems.addView(btnTheme);
-        // 🚀 [여기에 1개 추가!] 위젯 서브 메뉴 진입 버튼
-        LinearLayout btnWidgetMenu = createSettingRow("Home Screen Widgets", "〉 ");
-        btnWidgetMenu.setOnClickListener(new View.OnClickListener() {
+
+// 🚀 [신규 엔진] 내가 원하는 메인 화면 버튼만 개별적으로 끄고 켤 수 있는 서브 메뉴 진입기
+        final LinearLayout btnMenuVisibility = createSettingRow("Main Menu Items", t("Edit") + " 〉");
+        btnMenuVisibility.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 clickFeedback();
-                buildWidgetSettingsUI(); // 방금 만든 위젯 창 열기!
+                buildMainMenuVisibilitySettingsUI(); // 대망의 개별 숨김 편집창 호출!
+
+                // 🚀 [초기 진입 포커스 강제 주입] 서브 메뉴가 열리자마자 0번 항목에 자석처럼 포커스를 꽂아줍니다!
+                containerSettingsItems.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (containerSettingsItems.getChildCount() > 0) {
+                            containerSettingsItems.getChildAt(0).requestFocus();
+                        }
+                    }
+                }, 50); // 화면이 전환되는 찰나(50ms)를 기다렸다가 완벽하게 꽂음
             }
         });
-        containerSettingsItems.addView(btnWidgetMenu);
+        containerSettingsItems.addView(btnMenuVisibility);
 
+        // 🚀 [휠 루프 버그 수리] 메인 화면 연결 고리 즉시 새로고침 탑재!
+        final LinearLayout btnLoopScrollToggle = createSettingRow("Wheel Loop Scroll", isLoopScrollOn ? t("ON") : t("OFF"));
+        btnLoopScrollToggle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                isLoopScrollOn = !isLoopScrollOn;
+                ((TextView) btnLoopScrollToggle.getChildAt(1)).setText(isLoopScrollOn ? t("ON") : t("OFF"));
+                prefs.edit().putBoolean("loop_scroll_on", isLoopScrollOn).commit();
+
+                // 💡 [핵심 해결] 스위치를 끄거나 켜는 즉시 백그라운드에서 메인 화면 포커스 고리망을 다시 엮어줍니다!
+               // applyThemeToMainMenu();
+            }
+        });
+        containerSettingsItems.addView(btnLoopScrollToggle);
         final LinearLayout btnTimeout = createSettingRow("Screen Timeout", t(TIMEOUT_NAMES[currentTimeoutIndex]));
         btnTimeout.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -3717,8 +3908,9 @@ public class MainActivity extends Activity {
         try {
             isAirplaneModeOn = android.provider.Settings.Global.getInt(getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
         } catch (Exception e) {}
-
-        LinearLayout btnLangMenu = createSettingRow("Language", com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName);
+// 🚀 [디테일 수리] 화면에 보여줄 때만 ".json" 꼬리표를 빈칸("")으로 날려버립니다!
+        String displayLang = com.themoon.y1.managers.LanguageManager.getInstance(this).currentLangFileName.replace(".json", "");
+        LinearLayout btnLangMenu = createSettingRow("Language", displayLang);
         btnLangMenu.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -3970,7 +4162,7 @@ public class MainActivity extends Activity {
         // ⚙️ [모드 2] 설정 서브 페이지 모드 (기존 로직 완벽 유지)
         // ==========================================================
         else {
-            android.widget.Button btnClose = createListButton("Back " + t("Close Settings (Back to Player)"));
+            android.widget.Button btnClose = createListButton(t("Close Settings"));
             btnClose.setTextColor(0xFFFF8800);
             btnClose.setOnClickListener(v -> {
                 clickFeedback();
@@ -4018,11 +4210,11 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 if (isSaved) {
                     savedRadioStations.remove(Float.valueOf(fmManager.currentFreq));
-                    android.widget.Toast.makeText(MainActivity.this, "Removed from saved channels.", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(MainActivity.this, t("Removed from saved channels."), android.widget.Toast.LENGTH_SHORT).show();
                 } else {
                     savedRadioStations.add(fmManager.currentFreq);
                     java.util.Collections.sort(savedRadioStations);
-                    android.widget.Toast.makeText(MainActivity.this, "Channel saved!", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(MainActivity.this, t("Channel saved!"), android.widget.Toast.LENGTH_SHORT).show();
                 }
                 StringBuilder sb = new StringBuilder();
                 for(int i=0; i<savedRadioStations.size(); i++) {
@@ -4039,7 +4231,7 @@ public class MainActivity extends Activity {
             btnAutoScan.setOnClickListener(v -> {
                 clickFeedback();
                 if (!fmManager.isPowerUp) {
-                    android.widget.Toast.makeText(MainActivity.this, "Please turn on Radio Power first!", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(MainActivity.this, t("Please turn on Radio Power first!"), android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 if (isRadioScanning) return;
@@ -4059,8 +4251,8 @@ public class MainActivity extends Activity {
                                 pbLoadingProgress.setProgress(p);
                             }
                             if (tvLoadingProgress != null) {
-                                tvLoadingProgress.setText(String.format(java.util.Locale.US, "Scanning FM Frequencies...\nSearching around %.1f MHz", f));
-                            }
+
+                                tvLoadingProgress.setText(String.format(java.util.Locale.US, t("Scanning FM Frequencies...\nSearching around %.1f MHz"), f));                            }
                         });
                         try { Thread.sleep(70); } catch(Exception e){}
                         progress += 1;
@@ -4076,7 +4268,7 @@ public class MainActivity extends Activity {
 
                     runOnUiThread(() -> {
                         if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(android.view.View.GONE);
-                        if (tvLoadingProgress != null) tvLoadingProgress.setText("Preparing to scan...\nPlease wait.");
+                        if (tvLoadingProgress != null) tvLoadingProgress.setText(t("Preparing to scan...\nPlease wait."));
 
                         if (foundStations != null && foundStations.length > 0) {
                             savedRadioStations.clear();
@@ -4089,10 +4281,10 @@ public class MainActivity extends Activity {
                                 if(i < savedRadioStations.size()-1) sb.append(",");
                             }
                             prefs.edit().putString("radio_stations", sb.toString()).commit();
-                            android.widget.Toast.makeText(MainActivity.this, "Scan Complete!\nFound " + foundStations.length + " channels.\nTuning to " + foundStations[0] + "MHz", android.widget.Toast.LENGTH_LONG).show();
+                            android.widget.Toast.makeText(MainActivity.this, t("Scan Complete!\nFound")+" " + foundStations.length + t("channels.\nTuning to")+" " + foundStations[0] + "MHz", android.widget.Toast.LENGTH_LONG).show();
                             fmManager.tune(foundStations[0]);
                         } else {
-                            android.widget.Toast.makeText(MainActivity.this, "No stations found. (" + fmManager.lastError + ")", android.widget.Toast.LENGTH_LONG).show();
+                            android.widget.Toast.makeText(MainActivity.this, t("No stations found.")+" (" + fmManager.lastError + ")", android.widget.Toast.LENGTH_LONG).show();
                         }
                         buildRadioUI();
                     });
@@ -4248,7 +4440,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void run() {
                             TextView tvServer = (TextView) rowServer.getChildAt(1);
-                            tvServer.setText("Network Error");
+                            tvServer.setText(t("Network Error"));
                             tvServer.setTextColor(0xFFFF4444); // 빨간색 에러 표시
                         }
                     });
@@ -4410,7 +4602,7 @@ public class MainActivity extends Activity {
                 isPickingBackground = true;
                 currentFolder = new File("/storage/sdcard0");
                 changeScreen(STATE_BROWSER);
-                Toast.makeText(MainActivity.this, "Select a JPG/PNG image", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, t("Select a JPG/PNG image"), Toast.LENGTH_SHORT).show();
             }
         });
         containerSettingsItems.addView(btnSelectBg);
@@ -4423,10 +4615,10 @@ public class MainActivity extends Activity {
                 clickFeedback();
                 if (prefs.contains("bg_path")) {
                     prefs.edit().remove("bg_path").commit();
-                    Toast.makeText(MainActivity.this, "Custom background cleared.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("Custom background cleared."), Toast.LENGTH_SHORT).show();
                     updateMainMenuBackground(); // 즉시 원래 테마 배경으로 복구!
                 } else {
-                    Toast.makeText(MainActivity.this, "No custom background set.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, t("No custom background set."), Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -4448,7 +4640,7 @@ public class MainActivity extends Activity {
         tvProgress.setGravity(android.view.Gravity.CENTER);
         tvProgress.setPadding(0, 30, 0, 0);
         tvProgress.setTextSize(16);
-        tvProgress.setText("Connecting to server...");
+        tvProgress.setText(t("Connecting to server..."));
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -4458,7 +4650,7 @@ public class MainActivity extends Activity {
 
         final AlertDialog progressDialog = new AlertDialog.Builder(this,
                 android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Downloading Update 🚀")
+                .setTitle(t("Downloading Update"))
                 .setView(layout)
                 .setCancelable(false) // 💡 다운로드 중에 다른 곳을 터치해도 창이 닫히지 않도록 잠급니다!
                 .create();
@@ -4562,7 +4754,7 @@ public class MainActivity extends Activity {
                         public void run() {
                             // 1. 프로그레스 바를 꽉 채우고, 우리가 확인해야 할 핵심 숫자를 화면에 띄웁니다.
                             progressBar.setProgress(100);
-                            tvProgress.setText("Download Finished! Waiting 3 sec...\n\n" + debugMessage);
+                            tvProgress.setText(t("Download Finished! Waiting 3 sec...\n\n") + debugMessage);
                             tvProgress.setTextColor(0xFF000000); // 눈에 확 띄게 노란색으로!
 
                             // 2. 정확히 3초(3000ms) 동안 화면을 멈춰둔 뒤에 팝업을 닫고 설치를 시도합니다.
@@ -4582,7 +4774,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void run() {
                             progressDialog.dismiss();
-                            Toast.makeText(MainActivity.this, "Download failed. Check your internet connection.",
+                            Toast.makeText(MainActivity.this, t("Download failed. Check your internet connection."),
                                     Toast.LENGTH_LONG).show();
                         }
                     });
@@ -4638,7 +4830,7 @@ public class MainActivity extends Activity {
         scrollViewBrowser.setVisibility(View.GONE);
         listVirtualSongs.setVisibility(View.VISIBLE);
 
-        tvBrowserPath.setText(t("Library") + ": 💖 " + t("My Favorites"));
+        tvBrowserPath.setText(t("Library") + ": " + t("My Favorites"));
 
         virtualSongList.clear();
         currentScrollIndexList.clear();
@@ -4666,7 +4858,7 @@ public class MainActivity extends Activity {
         }
 
         if (targetSongs.isEmpty()) {
-            Toast.makeText(this, "No favorites added yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("No favorites added yet."), Toast.LENGTH_SHORT).show();
         }
 
         SongListAdapter adapter = new SongListAdapter(targetSongs);
@@ -4696,12 +4888,7 @@ public class MainActivity extends Activity {
             if (!isAudiobookLibraryMode) {
                 tvBrowserPath.setText(t("Library") + ": " + t("Music"));
 
-//                Button btnFav = createListButton("💖 " + t("My Favorites"));
-                android.view.View btnFav = createListButtonWithIcon("\uE87D", t("My Favorites"));
-
-//                btnFav.setTextColor(0xFFFF8888);
-                btnFav.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FAVORITES; buildVirtualSongsForFavorites(); });
-                containerBrowserItems.addView(btnFav);
+//
 
                 // 🚀 [대개조] 텍스트 기반 이모지 대신, 머티리얼 디자인 고유 유니코드를 전달합니다!
                 // 머티리얼 디자인 아이콘에서 앨범/사진 콜렉션 아이콘 코드인 "\uE3B6" 을 사용합니다.
@@ -4731,6 +4918,13 @@ public class MainActivity extends Activity {
                 btnAlbum.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
                 containerBrowserItems.addView(btnAlbum);
 
+                android.view.View btnYear = createListButtonWithIcon("\uE916", t("Years"));
+                btnYear.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_YEARS; virtualQueryValue = ""; buildVirtualCategories("YEAR"); });
+                containerBrowserItems.addView(btnYear);
+
+                android.view.View btnGenre = createListButtonWithIcon("\uE030", t("Genres"));
+                btnGenre.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_GENRES; virtualQueryValue = ""; buildVirtualCategories("GENRE"); });
+                containerBrowserItems.addView(btnGenre);
                // Button btnAll = createListButton("🎵 " + t("All Songs"));
                 android.view.View btnAll = createListButtonWithIcon("\uE03D", t("All Songs"));
                 btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
@@ -4741,9 +4935,14 @@ public class MainActivity extends Activity {
                 btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
                 containerBrowserItems.addView(btnM3uPlaylist);
 
+                android.view.View btnFav = createListButtonWithIcon("\uE87D", t("My Favorites"));
+
+//                btnFav.setTextColor(0xFFFF8888);
+                btnFav.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FAVORITES; buildVirtualSongsForFavorites(); });
+                containerBrowserItems.addView(btnFav);
                 // 🎧 오디오북 모드로 넘어가기 버튼
                // Button btnAudiobook = createListButton("🎧 " + t("Switch to Audiobooks"));
-                android.view.View btnAudiobook = createListButtonWithIcon("\uEA19", t("Switch to Audiobooks"));
+                android.view.View btnAudiobook = createListButtonWithIcon("\uE86D", t("Switch to Audiobooks"));
           //      btnAudiobook.setTextColor(0xFF00FFFF);
                 btnAudiobook.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = true; buildFileBrowserUI(); });
                 containerBrowserItems.addView(btnAudiobook);
@@ -4752,32 +4951,40 @@ public class MainActivity extends Activity {
             else {
                 tvBrowserPath.setText(t("Library") + ": " + t("Audiobooks"));
 
-                Button btnFolder = createListButton("📁 " + t("Folders"));
+//                Button btnFolder = createListButton("📁 " + t("Folders"));
+                android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
                 btnFolder.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = audiobookRootFolder; buildFileBrowserUI(); });
                 containerBrowserItems.addView(btnFolder);
 
-                Button btnAuthor = createListButton("👤 " + t("Authors"));
+                android.view.View btnAuthor = createListButtonWithIcon("\uE7FD", t("Authors"));
                 btnAuthor.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ARTISTS; virtualQueryValue = ""; buildVirtualCategories("ARTIST"); });
                 containerBrowserItems.addView(btnAuthor);
 
-                Button btnBook = createListButton("📚 " + t("Books"));
+                android.view.View btnBook = createListButtonWithIcon("\uE86D", t("Books"));
                 btnBook.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_ALBUMS; virtualQueryValue = ""; buildVirtualCategories("ALBUM"); });
                 containerBrowserItems.addView(btnBook);
 
-                Button btnAll = createListButton("🎧 " + t("All Audiobooks"));
+                android.view.View btnAll = createListButtonWithIcon("\uE8FE", t("All Audiobooks"));
+
                 btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
                 containerBrowserItems.addView(btnAll);
 
                 // 🎵 뮤직 모드로 돌아가기 버튼
-                Button btnMusic = createListButton("🎵 " + t("Switch to Music"));
-                btnMusic.setTextColor(0xFFFF8888);
+                android.view.View btnMusic = createListButtonWithIcon("\uE03D", t("Switch to Music"));
+
                 btnMusic.setOnClickListener(v -> { clickFeedback(); isAudiobookLibraryMode = false; buildFileBrowserUI(); });
                 containerBrowserItems.addView(btnMusic);
             }
+            // 스캔 중일 때는 모래시계(\uE88B), 평소에는 동기화 화살표(\uE863) 유니코드를 적용합니다.
+            String scanIcon = isCustomScanning ? "\uE88B" : "\uE863";
+            String scanText = isCustomScanning ? t("Scanning Media...") : t("Scan Media Library");
 
-            Button btnScan = createListButton(isCustomScanning ? "⏳ " + t("Scanning Media...") : "🔄 " + t("Scan Media Library"));
-            btnScan.setTextColor(0xFFFFFFFF);
-            btnScan.setOnClickListener(v -> { clickFeedback(); startMediaLibraryScan(); });
+            android.view.View btnScan = createListButtonWithIcon(scanIcon, scanText);
+
+            btnScan.setOnClickListener(v -> {
+                clickFeedback();
+                startMediaLibraryScan();
+            });
             containerBrowserItems.addView(btnScan);
 
             if (containerBrowserItems.getChildCount() > 0) containerBrowserItems.getChildAt(0).requestFocus();
@@ -4834,7 +5041,15 @@ public class MainActivity extends Activity {
 
         java.util.HashSet<String> uniqueCategories = new java.util.HashSet<>();
         for (SongItem song : activeLibrary) {
-            String val = type.equals("ARTIST") ? song.artist : song.album;
+            // ❌ 기존 코드: String val = type.equals("ARTIST") ? song.artist : song.album;
+
+            // 🟢 [완벽 수정] YEAR와 GENRE 분기를 추가하여 중복 없는 알맹이 명단을 긁어모읍니다.
+            String val = "Unknown";
+            if (type.equals("ARTIST")) val = song.artist;
+            else if (type.equals("ALBUM")) val = song.album;
+            else if (type.equals("YEAR")) val = song.year;
+            else if (type.equals("GENRE")) val = song.genre;
+
             uniqueCategories.add(val);
         }
 
@@ -5391,13 +5606,13 @@ public class MainActivity extends Activity {
         // 🚀 스위치에 따라 뒤질 바구니를 바꿉니다!
         List<SongItem> activeLibrary = isAudiobookLibraryMode ? audiobookLibrary : customLibrary;
 
-        // (상단부 코드 생략) ...
         for (SongItem song : activeLibrary) {
             if (virtualQueryType.equals("ALL") ||
                     (virtualQueryType.equals("ARTIST") && song.artist.equals(virtualQueryValue)) ||
                     (virtualQueryType.equals("ALBUM") && song.album.equals(virtualQueryValue)) ||
-                    // 🚀 [경로 복구 1] 커버플로우 전용 꼬리표를 달고 와도 검색해 줍니다.
-                    (virtualQueryType.equals("COVER_FLOW_ALBUM") && song.album.equals(virtualQueryValue))) {
+                    (virtualQueryType.equals("COVER_FLOW_ALBUM") && song.album.equals(virtualQueryValue)) || // 🚀 [이 밑에 2줄 추가!]
+                    (virtualQueryType.equals("YEAR") && song.year.equals(virtualQueryValue)) ||
+                    (virtualQueryType.equals("GENRE") && song.genre.equals(virtualQueryValue))) {
                 targetSongs.add(song);
             }
         }
@@ -5533,9 +5748,9 @@ public class MainActivity extends Activity {
                                     if (layoutLoadingOverlay != null) layoutLoadingOverlay.setVisibility(View.GONE);
 
                                     if (allAudioInFolder.isEmpty()) {
-                                        Toast.makeText(MainActivity.this, "No audio files found in subfolders.", Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(MainActivity.this, t("No audio files found in subfolders."), Toast.LENGTH_SHORT).show();
                                     } else {
-                                        Toast.makeText(MainActivity.this, "Loaded " + allAudioInFolder.size() + " songs!", Toast.LENGTH_SHORT).show();
+//                                        Toast.makeText(MainActivity.this, "Loaded " + allAudioInFolder.size() + " songs!", Toast.LENGTH_SHORT).show();
                                         com.themoon.y1.managers.AudioPlayerManager.getInstance().playTrackList(allAudioInFolder, 0); // 0번 곡부터 시원하게 재생!
 
                                         // 🚀 [해결] 전체 재생 후 플레이어 화면으로 자동 전환!
@@ -5551,7 +5766,8 @@ public class MainActivity extends Activity {
         }
         // 🚀🚀🚀 [추가 끝]
         for (final File folder : folders) {
-            Button b = createListButton("📁 " + folder.getName());
+            android.view.View b = createListButtonWithIcon("\uE2C7",folder.getName());
+         //   Button b = createListButton("📁 " + folder.getName());
             b.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -5565,7 +5781,8 @@ public class MainActivity extends Activity {
 
         if (isPickingBackground) {
             for (final File img : imageFiles) {
-                Button b = createListButton("🖼 " + img.getName());
+//                Button b = createListButton("🖼 " + img.getName());
+                android.view.View b = createListButtonWithIcon("\uE410",img.getName());
                 b.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -5577,7 +5794,7 @@ public class MainActivity extends Activity {
 
                         updateMainMenuBackground(); // 💡 선택 즉시 블러 처리해서 메인 화면에 적용
 
-                        Toast.makeText(MainActivity.this, "Background Applied!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, t("Background Applied!"), Toast.LENGTH_SHORT).show();
                         isPickingBackground = false;
                         changeScreen(STATE_SETTINGS);
                         buildBackgroundSettingsUI();
@@ -5741,10 +5958,18 @@ public class MainActivity extends Activity {
             mainMenu.getChildAt(i).setVisibility(View.GONE);
         }
 
-        android.widget.FrameLayout canvas = (android.widget.FrameLayout) mainMenu.findViewWithTag("dynamic_canvas");
-        if (canvas != null) mainMenu.removeView(canvas);
+        // 🚀 [버그 수리: 고스트 뷰 잔상 박멸]
+        android.view.View oldCanvas = mainMenu.findViewWithTag("dynamic_canvas");
+        while (oldCanvas != null) {
+            if (oldCanvas instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) oldCanvas).removeAllViews();
+            }
+            mainMenu.removeView(oldCanvas);
+            oldCanvas = mainMenu.findViewWithTag("dynamic_canvas");
+        }
 
-        canvas = new android.widget.FrameLayout(this);
+        // 🚀 [타입 선언 복구] canvas 변수 선언을 다시 붙여줍니다!
+        android.widget.FrameLayout canvas = new android.widget.FrameLayout(this);
         canvas.setTag("dynamic_canvas");
         canvas.setBackgroundColor(ThemeManager.getOverlayBackgroundColor());
 
@@ -5777,37 +6002,30 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 🚀 [신규 엔진] 생성된 리스트 박스(그룹)들을 기억해 둘 금고 생성
+        // 🚀 [신규 통합 금고] 생성되는 모든 위젯들의 주소와 JSON 정보를 한곳에 보관하는 사령탑 메모리
+// 🚀 [버그 수리] 기존에 있던 전역 변수 금고를 초기화하여 재활용합니다! (final 지역 변수 선언 삭제)
+        widgetViewRegistry.clear();
         final java.util.HashMap<String, LinearLayout> listContainers = new java.util.HashMap<>();
 
         // 💡 위젯 그리기
         for (ThemeManager.MenuElement el : widgetElements) {
-
             android.graphics.drawable.GradientDrawable widgetBg = createWidgetBackground(el.bgColor, el.radius);
             int p = (int)(el.padding * density);
+            View createdWidgetView = null; // 🚀 위젯 참조 변수
 
-            // 🚀 [신규 엔진] 리스트 전용 투명 스크롤 상자 조립!
             if (el.type.equals("list_box")) {
                 final android.widget.ScrollView sv = new android.widget.ScrollView(this);
                 sv.setLayoutParams(createDynamicLayoutParams(el, density));
                 sv.setVerticalScrollBarEnabled(false);
-
-                // 🚀 [점프 버그 수리] 안드로이드 시스템이 스크롤뷰 자체를 통째로 포커스 잡아버리는 것을 원천 차단합니다!
-                sv.setFocusable(false);
-                sv.setFocusableInTouchMode(false);
-                // 🚀 [포커스 증발 수리 2] 스크롤뷰 본인보다 '상자 안의 내용물(버튼들)'이 우선적으로 포커스를 먹도록 우선순위를 강제 지정합니다!
+                sv.setFocusable(false); sv.setFocusableInTouchMode(false);
                 sv.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);
-
                 if (widgetBg != null) sv.setBackground(widgetBg);
-
-                // 🚀 [잔상 버그 수리 1] 스크롤 시 부모 캔버스 전체를 새로고침하여 바깥으로 삐져나온 찌꺼기 픽셀 허상들을 싹 지워줍니다.
+                sv.setVisibility(View.VISIBLE); // 🚀 껍데기(리스트 상자)는 항상 열어둡니다.
                 sv.getViewTreeObserver().addOnScrollChangedListener(new android.view.ViewTreeObserver.OnScrollChangedListener() {
                     @Override
                     public void onScrollChanged() {
                         android.view.ViewParent p = sv.getParent();
-                        if (p instanceof android.view.View) {
-                            ((android.view.View) p).invalidate();
-                        }
+                        if (p instanceof android.view.View) ((android.view.View) p).invalidate();
                         sv.invalidate();
                     }
                 });
@@ -5815,54 +6033,33 @@ public class MainActivity extends Activity {
                 LinearLayout innerLayout = new LinearLayout(this);
                 innerLayout.setOrientation(LinearLayout.VERTICAL);
                 innerLayout.setPadding(p, p, p, p);
-
-                // 🚀 [잔상 버그 수리 2] 자르기 방지 옵션을 삭제하여 요소들이 스크롤 뷰 바깥으로 도망가 잔상을 남기는 것을 근본적으로 막습니다!
-                // (innerLayout.setClipChildren(false); 코드 두 줄을 완전히 삭제했습니다)
-
                 sv.addView(innerLayout, new android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
 
                 canvas.addView(sv);
                 listContainers.put(el.id, innerLayout);
+                createdWidgetView = sv;
             }
             else if (el.type.equals("box")) {
-// ... (기존 box 코드 등 이어짐)
                 ImageView boxView = new ImageView(this);
                 boxView.setLayoutParams(createDynamicLayoutParams(el, density));
-
-                if (widgetBg == null) {
-                    widgetBg = createWidgetBackground("#00000000", el.radius);
-                }
+                if (widgetBg == null) widgetBg = createWidgetBackground("#00000000", el.radius);
                 boxView.setBackground(widgetBg);
 
-                // 🚀 1. 파서(Parser)가 iconNormal을 누락시킬 경우를 대비해 textNormal도 검사!
                 String imgName = (el.iconNormal != null && !el.iconNormal.isEmpty()) ? el.iconNormal : el.textNormal;
-
-                // "New Item"은 껍데기 텍스트이므로 렌더링 제외
                 if (imgName != null && !imgName.isEmpty() && !imgName.equals("New Item")) {
                     android.graphics.Bitmap bmp = ThemeManager.getCustomIcon(imgName, MainActivity.this, 0);
                     if (bmp != null) {
-                        // 🚀 2. 고해상도 사진의 안드로이드 OpenGL 렌더링 한계(Max Texture Size)를 돌파하기 위한 강제 스케일링
                         int maxTexSize = 2048;
                         if (bmp.getWidth() > maxTexSize || bmp.getHeight() > maxTexSize) {
                             float ratio = Math.min((float)maxTexSize / bmp.getWidth(), (float)maxTexSize / bmp.getHeight());
-                            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, (int)(bmp.getWidth() * ratio), (int)(bmp.getHeight() * ratio), true);
-                            boxView.setImageBitmap(scaled);
-                        } else {
-                            boxView.setImageBitmap(bmp);
-                        }
-
+                            boxView.setImageBitmap(android.graphics.Bitmap.createScaledBitmap(bmp, (int)(bmp.getWidth() * ratio), (int)(bmp.getHeight() * ratio), true));
+                        } else boxView.setImageBitmap(bmp);
                         boxView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-
-                        if (android.os.Build.VERSION.SDK_INT >= 21) {
-                           // boxView.setClipToOutline(true);
-                        }
                     }
                 }
-
-                // 버튼(Button)들보다 먼저 그려지므로, 자연스럽게 버튼 뒤(배경 앞)에 깔리게 됩니다!
                 canvas.addView(boxView);
+                createdWidgetView = boxView;
             }
             else if (el.type.equals("widget_clock")) {
                 tvWidgetClock = new TextView(this);
@@ -5870,229 +6067,132 @@ public class MainActivity extends Activity {
                 tvWidgetClock.setLayoutParams(createDynamicLayoutParams(el, density));
                 tvWidgetClock.setTextColor(ThemeManager.getTextColorPrimary());
                 tvWidgetClock.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
-                // 🚀 [수정] 테마 파일(el)에서 읽어온 크기를 메모장에 단단히 적어둡니다!
-                // 🚀 [수정 전]
-                // currentClockSize = el.textSize > 0 ? el.textSize : 48f;
-                // tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, currentClockSize);
-
-                // 🚀 [수정 후] 버튼 쪽에 적혀있는 단위와 배율 공식을 그대로 가져와서 붙여넣습니다!
-                // (아래는 예시입니다. 회원님의 버튼 코드를 보고 그대로 맞춰주세요!)
                 currentClockSize = el.textSize > 0 ? el.textSize : 48f;
-                tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, currentClockSize * density); // d는 해상도 변수
-
+                tvWidgetClock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, currentClockSize * density);
                 if (widgetBg != null) tvWidgetClock.setBackground(widgetBg);
-                tvWidgetClock.setPadding(p, p, p, p); // 🚀 여백 적용!
-                canvas.addView(tvWidgetClock);
+                tvWidgetClock.setPadding(p, p, p, p);
 
-            } else if (el.type.equals("widget_battery")) {
+                canvas.addView(tvWidgetClock); // 🚀 캔버스 직속 복귀!
+                createdWidgetView = tvWidgetClock;
+            }
+            else if (el.type.equals("widget_battery")) {
                 widgetBatteryView = new WidgetBatteryBarView(this);
-                if (el.textSize > 0) widgetBatteryView.setCustomTextSize(el.textSize * density);
-
-                if (widgetBg != null) {
-                    LinearLayout batteryWrapper = new LinearLayout(this);
-                    batteryWrapper.setLayoutParams(createDynamicLayoutParams(el, density));
-                    batteryWrapper.setGravity(android.view.Gravity.CENTER);
-                    batteryWrapper.setBackground(widgetBg);
-                    batteryWrapper.setPadding(p, p, p, p); // 🚀 여백 적용!
-
-                    widgetBatteryView.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-                    batteryWrapper.addView(widgetBatteryView);
-                    canvas.addView(batteryWrapper);
-                } else {
-                    widgetBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
-                    widgetBatteryView.setPadding(p, p, p, p); // 🚀 여백 적용!
-                    canvas.addView(widgetBatteryView);
-                }
-
-            } else if (el.type.equals("widget_album")) {
+                widgetBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
+                widgetBatteryView.setPadding(p, p, p, p);
+                canvas.addView(widgetBatteryView);
+                createdWidgetView = widgetBatteryView;
+            }
+            else if (el.type.equals("widget_album")) {
                 LinearLayout albumContainer = new LinearLayout(this);
+                layoutWidgetAlbumContainer = albumContainer;
                 boolean isHorizontal = el.textPosition.equalsIgnoreCase("left") || el.textPosition.equalsIgnoreCase("right");
                 albumContainer.setOrientation(isHorizontal ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
                 albumContainer.setGravity(android.view.Gravity.CENTER);
                 albumContainer.setLayoutParams(createDynamicLayoutParams(el, density));
-
-                if (widgetBg != null) {
-                    albumContainer.setBackground(widgetBg);
-                }
+                if (widgetBg != null) albumContainer.setBackground(widgetBg);
                 albumContainer.setPadding(p, p, p, p);
 
-                // 1. 앨범 이미지 세팅
                 ivWidgetAlbum = new ImageView(this);
-                ivWidgetAlbum.setScaleType(ImageView.ScaleType.CENTER_CROP); // 🚀 찌그러짐 완벽 방지: 정사각형 틀에 맞춰 꽉 채움!
-
+                ivWidgetAlbum.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 int pSubtract = el.padding * 2;
-                int imgSize;
-
-                // 🚀 [핵심 수정] 이미지 크기가 위젯 전체를 집어삼키지 않도록 방어막을 칩니다!
-                if (isHorizontal) {
-                    imgSize = (int)((el.height - pSubtract) * density);
-                } else {
-                    // 세로 배치일 때는 전체 높이(el.height)의 65%만 이미지에게 할당합니다.
-                    // 이렇게 해야 위젯 높이를 키웠을 때 글씨 공간도 같이 넓어집니다!
-                    int maxImgHeightByRate = (int)((el.height - pSubtract) * 0.65f);
-                    int w = el.width > 0 ? el.width - pSubtract : el.height;
-
-                    imgSize = (w < maxImgHeightByRate) ? (int)(w * density) : (int)(maxImgHeightByRate * density);
-                }
+                int imgSize = isHorizontal ? (int)((el.height - pSubtract) * density) : (int)((el.height - pSubtract) * 0.65f * density);
                 if(imgSize <= 0) imgSize = (int)(110 * density);
-
-                // 🚀 [가중치 부여] 세로 모드일 때는 이미지가 위쪽 공간만 이쁘게 차지하도록 세팅
                 LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(imgSize, imgSize);
-                if (!isHorizontal) {
-                    imgLp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-                }
 
-                // 2. 텍스트 박스 세팅
                 LinearLayout textContainer = new LinearLayout(this);
                 textContainer.setOrientation(LinearLayout.VERTICAL);
-
-                int textGravity = android.view.Gravity.CENTER;
-                if (el.textAlign.equalsIgnoreCase("left")) textGravity = android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL;
-                else if (el.textAlign.equalsIgnoreCase("right")) textGravity = android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL;
+                int textGravity = el.textAlign.equalsIgnoreCase("left") ? (android.view.Gravity.LEFT | android.view.Gravity.CENTER_VERTICAL) : (el.textAlign.equalsIgnoreCase("right") ? (android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL) : android.view.Gravity.CENTER);
                 textContainer.setGravity(textGravity);
+                LinearLayout.LayoutParams textContainerLp = isHorizontal ? new LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f) : new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
 
-                LinearLayout.LayoutParams textContainerLp;
-                if (isHorizontal) {
-                    textContainerLp = new LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
-                } else {
-                    // 🚀 [핵심 수정] 세로 모드일 때 남은 여백 공간(height: 0, weight: 1.0f)을
-                    // 텍스트 상자가 전부 흡수하여 글씨가 절대로 잘리지 않게 고무줄 레이아웃을 만듭니다!
-                    textContainerLp = new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
-                }
-
-
-                // 🚀 [정상화] 포커스 강탈 코드는 삭제하고, 텍스트 상자 크기만 테마 설정에 맞게 꽉 가둡니다!
                 int safeWidth = el.width > 0 ? (int)(el.width * density) : (int)(200 * density);
-                int ppx = (int)(el.padding * density);
-                int availableWidth;
-
-                if (isHorizontal) {
-                    availableWidth = safeWidth - imgSize - (int)(15 * density) - (ppx * 2);
-                } else {
-                    availableWidth = safeWidth - (ppx * 2);
-                }
+                int availableWidth = isHorizontal ? (safeWidth - imgSize - (int)(15 * density) - (p * 2)) : (safeWidth - (p * 2));
                 if (availableWidth <= 0) availableWidth = (int)(150 * density);
-
                 LinearLayout.LayoutParams textViewLp = new LinearLayout.LayoutParams(availableWidth, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
 
-                // 3. 곡 제목 세팅 (순정 복구)
-                tvWidgetAlbumTitle = new TextView(this); // 💡 오버라이드 삭제!
-                tvWidgetAlbumTitle.setLayoutParams(textViewLp);
-                tvWidgetAlbumTitle.setGravity(textGravity);
-                tvWidgetAlbumTitle.setSingleLine(true);
-                tvWidgetAlbumTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-
+                tvWidgetAlbumTitle = new TextView(this);
+                tvWidgetAlbumTitle.setLayoutParams(textViewLp); tvWidgetAlbumTitle.setGravity(textGravity);
+                tvWidgetAlbumTitle.setSingleLine(true); tvWidgetAlbumTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 tvWidgetAlbumTitle.setTextColor(ThemeManager.getTextColorPrimary());
                 tvWidgetAlbumTitle.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.BOLD);
                 tvWidgetAlbumTitle.setTextSize(el.textSize > 0 ? el.textSize : 16);
                 textContainer.addView(tvWidgetAlbumTitle);
 
-                // 4. 가수 이름 세팅 (순정 복구)
-                tvWidgetAlbumArtist = new TextView(this); // 💡 오버라이드 삭제!
-                tvWidgetAlbumArtist.setLayoutParams(textViewLp);
-                tvWidgetAlbumArtist.setGravity(textGravity);
-                tvWidgetAlbumArtist.setSingleLine(true);
-                tvWidgetAlbumArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
-
+                tvWidgetAlbumArtist = new TextView(this);
+                tvWidgetAlbumArtist.setLayoutParams(textViewLp); tvWidgetAlbumArtist.setGravity(textGravity);
+                tvWidgetAlbumArtist.setSingleLine(true); tvWidgetAlbumArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 tvWidgetAlbumArtist.setTextColor(ThemeManager.getTextColorSecondary());
                 tvWidgetAlbumArtist.setTypeface(ThemeManager.getCustomFont(), android.graphics.Typeface.NORMAL);
                 tvWidgetAlbumArtist.setTextSize(el.textSecondarySize > 0 ? el.textSecondarySize : 12);
                 textContainer.addView(tvWidgetAlbumArtist);
 
-                // 최종 조립 (마진 및 패딩 공간 최적화)
                 if (el.textPosition.equalsIgnoreCase("left")) {
-                    imgLp.leftMargin = (int)(15 * density);
-                    albumContainer.addView(textContainer, textContainerLp);
-                    albumContainer.addView(ivWidgetAlbum, imgLp);
-                }
-                else if (el.textPosition.equalsIgnoreCase("right")) {
-                    textContainerLp.leftMargin = (int)(15 * density);
-                    albumContainer.addView(ivWidgetAlbum, imgLp);
-                    albumContainer.addView(textContainer, textContainerLp);
-                }
-                else if (el.textPosition.equalsIgnoreCase("top")) {
-                    textContainerLp.bottomMargin = (int)(5 * density); // 글씨와 이미지 사이 숨통
-                    albumContainer.addView(textContainer, textContainerLp);
-                    albumContainer.addView(ivWidgetAlbum, imgLp);
-                }
-                else { // bottom (하단에 글씨 배치)
-                    textContainerLp.topMargin = (int)(5 * density); // 이미지와 글씨 사이 숨통
-                    albumContainer.addView(ivWidgetAlbum, imgLp);
-                    albumContainer.addView(textContainer, textContainerLp);
+                    imgLp.leftMargin = (int)(15 * density); albumContainer.addView(textContainer, textContainerLp); albumContainer.addView(ivWidgetAlbum, imgLp);
+                } else if (el.textPosition.equalsIgnoreCase("right")) {
+                    textContainerLp.leftMargin = (int)(15 * density); albumContainer.addView(ivWidgetAlbum, imgLp); albumContainer.addView(textContainer, textContainerLp);
+                } else if (el.textPosition.equalsIgnoreCase("top")) {
+                    textContainerLp.bottomMargin = (int)(5 * density); albumContainer.addView(textContainer, textContainerLp); albumContainer.addView(ivWidgetAlbum, imgLp);
+                } else {
+                    textContainerLp.topMargin = (int)(5 * density); albumContainer.addView(ivWidgetAlbum, imgLp); albumContainer.addView(textContainer, textContainerLp);
                 }
 
-                canvas.addView(albumContainer);
-
-
-            } else if (el.type.equals("widget_analog_clock")) {
-                // 🚀 1. 지역 변수(analogClock)를 지우고, 통제실 변수(customAnalogClockView)에 정식으로 등록합니다!
+                canvas.addView(albumContainer); // 🚀 캔버스 직속 복귀!
+                createdWidgetView = albumContainer;
+            }
+            else if (el.type.equals("widget_analog_clock")) {
                 customAnalogClockView = new CustomAnalogClockView(this);
                 customAnalogClockView.setLayoutParams(createDynamicLayoutParams(el, density));
                 customAnalogClockView.setPadding(p, p, p, p);
-
-                // 🚀 2. 네모난 배경(widgetBg)을 칠하는 코드를 싹 지우고, 시계 내부 원형 색상으로 주입합니다!
                 if (el.bgColor != null && !el.bgColor.trim().isEmpty()) {
-                    try {
-                        int color = android.graphics.Color.parseColor(el.bgColor.trim());
-                        customAnalogClockView.setClockBackgroundColor(color);
-                    } catch (Exception e) {}
+                    try { customAnalogClockView.setClockBackgroundColor(android.graphics.Color.parseColor(el.bgColor.trim())); } catch (Exception e) {}
                 }
-
                 canvas.addView(customAnalogClockView);
-
-            } else if (el.type.equals("widget_circular_battery")) {
-            // 🚀 원형 배터리 조립
-            customCircularBatteryView = new CircularBatteryView(this);
-            if (el.textSize > 0) customCircularBatteryView.setCustomTextSize(el.textSize * density);
-            else customCircularBatteryView.setCustomTextSize(18 * density); // 기본 글자 크기
-
-            if (widgetBg != null) {
-                LinearLayout batteryWrapper = new LinearLayout(this);
-                batteryWrapper.setLayoutParams(createDynamicLayoutParams(el, density));
-                batteryWrapper.setGravity(android.view.Gravity.CENTER);
-                batteryWrapper.setBackground(widgetBg);
-                batteryWrapper.setPadding(p, p, p, p);
-
-                customCircularBatteryView.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-                batteryWrapper.addView(customCircularBatteryView);
-                canvas.addView(batteryWrapper);
-            } else {
+                createdWidgetView = customAnalogClockView;
+            }
+            else if (el.type.equals("widget_circular_battery")) {
+                customCircularBatteryView = new CircularBatteryView(this);
                 customCircularBatteryView.setLayoutParams(createDynamicLayoutParams(el, density));
                 customCircularBatteryView.setPadding(p, p, p, p);
+                if (el.textSize > 0) customCircularBatteryView.setCustomTextSize(el.textSize * density);
                 canvas.addView(customCircularBatteryView);
+                createdWidgetView = customCircularBatteryView;
             }
-            } else if (el.type.equals("widget_focus_image")) {
-                // 🚀 [신규 추가] 다이내믹 포커스 이미지 위젯 조립
-                ivWidgetFocusImage = new ImageView(this);
+            else if (el.type.equals("widget_focus_image")) {
+                ivWidgetFocusImage = new ImageView(this); // 🚀 하이브리드 통합을 위해 뼈대를 이미지뷰 원본 단독으로 슬림화!
                 ivWidgetFocusImage.setLayoutParams(createDynamicLayoutParams(el, density));
-                ivWidgetFocusImage.setScaleType(ImageView.ScaleType.CENTER_CROP); // 비율 유지하며 꽉 채우기
-
+                ivWidgetFocusImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 if (widgetBg != null) ivWidgetFocusImage.setBackground(widgetBg);
                 ivWidgetFocusImage.setPadding(p, p, p, p);
 
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-              //      ivWidgetFocusImage.setClipToOutline(true); // 둥근 배경에 맞춰 이미지도 둥글게 자르기
-                }
-
-                // 🚀 [여기 추가!!] 버튼 목록 중 가장 첫 번째(포커스 인덱스 0번)의 이미지를 기본값으로 쫙 깔아둡니다!
-                if (!buttonElements.isEmpty()) {
-                    String defaultImg = buttonElements.get(0).previewImage;
-                    if (defaultImg != null && !defaultImg.isEmpty()) {
-                        android.graphics.Bitmap bmpPreview = ThemeManager.getCustomIcon(defaultImg, MainActivity.this, 0);
-                        if (bmpPreview != null) {
-                            ivWidgetFocusImage.setImageBitmap(bmpPreview);
-                        }
-                    }
-                }
-
                 canvas.addView(ivWidgetFocusImage);
+                createdWidgetView = ivWidgetFocusImage;
+            }
+
+            // 🚀 주소록 대장에 이 위젯 객체와 테마 JSON 설계 정보를 꼼꼼히 입고합니다.
+            if (createdWidgetView != null) {
+                // ❌ [치명적 에러 원인 제거] 루프 도중 리스트를 수정하여 앱이 터지는 현상을 완벽 방지!
+                widgetViewRegistry.put(createdWidgetView, el); // 올바른 금고에 보관합니다.
+
+                // 🚀 [논리 수정] parentId가 아니라, 새로 만든 visibleOnFocus(감시 대상)가 적혀있다면 평소엔 숨겨둡니다!
+                if (el.visibleOnFocus != null && !el.visibleOnFocus.trim().isEmpty()) {
+                    createdWidgetView.setVisibility(View.GONE);
+                }
             }
         }
         // 💡 버튼 그리기
         List<LinearLayout> createdButtons = new ArrayList<>(); // 🚀 Button에서 LinearLayout으로 업그레이드
 
-        for (int i = 0; i < buttonElements.size(); i++) {
-            final ThemeManager.MenuElement el = buttonElements.get(i);
+        // 🚀 [숨김 필터링 엔진] 사용자가 설정창에서 숨기기로 한 버튼은 명단에서 아예 빼버립니다!
+        List<ThemeManager.MenuElement> visibleButtonElements = new ArrayList<>();
+        for (ThemeManager.MenuElement el : buttonElements) {
+            if (!prefs.getBoolean("hide_btn_" + el.id, false)) {
+                visibleButtonElements.add(el);
+            }
+        }
+
+        // 전체 명단이 아닌, '보이기로 한 버튼들'만 가지고 UI 조립 및 포커스 고리(ID)를 엮습니다.
+        for (int i = 0; i < visibleButtonElements.size(); i++) {
+            final ThemeManager.MenuElement el = visibleButtonElements.get(i);
 
             // 🚀 1. 버튼을 감싸는 전체 컨테이너 (LinearLayout)
             final LinearLayout btn = new LinearLayout(this);
@@ -6219,9 +6319,9 @@ public class MainActivity extends Activity {
                     if (isIconOnly) {
                         tvMain.setText("");
                     } else {
-                        tvMain.setText(el.textNormal);
+                        tvMain.setText(t(el.textNormal));
                         tvMain.setTextColor(ThemeManager.getTextColorPrimary());
-                        tvRight.setText(el.textRight != null ? el.textRight : "");
+                        tvRight.setText(el.textRight != null ? t(el.textRight) : "");
 
                         if (el.textRightColor != null && !el.textRightColor.isEmpty()) {
                             try { tvRight.setTextColor(android.graphics.Color.parseColor(el.textRightColor)); }
@@ -6274,8 +6374,8 @@ public class MainActivity extends Activity {
                             } else {
                                 tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                             }
-                            if (el.textFocused != null && !el.textFocused.isEmpty()) tvMain.setText(el.textFocused);
-                            else tvMain.setText(el.textNormal);
+                            if (el.textFocused != null && !el.textFocused.isEmpty()) tvMain.setText(t(el.textFocused));
+                            else tvMain.setText(t(el.textNormal));
                         }
 
                         String targetIcon = (el.iconFocused != null && !el.iconFocused.isEmpty()) ? el.iconFocused : el.iconNormal;
@@ -6290,18 +6390,7 @@ public class MainActivity extends Activity {
                                 tvMain.setCompoundDrawables(d, null, null, null);
                             }
                         }
-                        if (ivWidgetFocusImage != null) {
-                            if (el.previewImage != null && !el.previewImage.isEmpty()) {
-                                android.graphics.Bitmap bmpPreview = ThemeManager.getCustomIcon(el.previewImage, MainActivity.this, 0);
-                                if (bmpPreview != null) {
-                                    ivWidgetFocusImage.setImageBitmap(bmpPreview);
-                                } else {
-                                    ivWidgetFocusImage.setImageDrawable(null); // 에러 시 비움
-                                }
-                            } else {
-                                ivWidgetFocusImage.setImageDrawable(null); // 이미지가 지정되지 않았으면 비움
-                            }
-                        }
+                        updateFocusPreviewLiveContent(el);
                         tvMain.animate()
                                 .translationX(el.focusOffsetX * density)
                                 .translationY(el.focusOffsetY * density)
@@ -6326,6 +6415,10 @@ public class MainActivity extends Activity {
                     switch (el.action) {
                         case "OPEN_PLAYER": if (currentPlaylist.isEmpty()) Toast.makeText(MainActivity.this, "No music is currently playing.", Toast.LENGTH_SHORT).show(); else changeScreen(STATE_PLAYER); break;
 // 🎵 뮤직 라이브러리로 진입
+                        case "OPEN_COVER_FLOW":
+                            currentBrowserMode = BROWSER_COVER_FLOW;
+                            changeScreen(STATE_BROWSER);
+                            break;
                         case "OPEN_BROWSER":
                             isAudiobookLibraryMode = false;
                             currentBrowserMode = BROWSER_ROOT;
@@ -6405,11 +6498,13 @@ public class MainActivity extends Activity {
         int totalBtns = createdButtons.size();
         for (int i = 0; i < totalBtns; i++) {
             LinearLayout currentBtn = createdButtons.get(i);
-            int prevId = 10000 + ((i - 1 + totalBtns) % totalBtns);
-            int nextId = 10000 + ((i + 1) % totalBtns);
+            // 🚀 [루프 조건 분기] 루프 스크롤 설정 상태에 따라 양 끝단 경계면의 무한 래핑을 허용하거나 단절(View.NO_ID)합니다.
+            int prevId = (i == 0) ? (isLoopScrollOn ? 10000 + totalBtns - 1 : View.NO_ID) : 10000 + i - 1;
+            int nextId = (i == totalBtns - 1) ? (isLoopScrollOn ? 10000 : View.NO_ID) : 10000 + i + 1;
 
             currentBtn.setNextFocusUpId(prevId);
             currentBtn.setNextFocusLeftId(prevId);
+
             currentBtn.setNextFocusDownId(nextId);
             currentBtn.setNextFocusRightId(nextId);
         }
@@ -6422,15 +6517,17 @@ public class MainActivity extends Activity {
             firstBtn.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    firstBtn.requestFocus();
+                    // 🚀 [포커스 증발 버그의 진범 검거!] 메인 화면을 보고 있을 때만 포커스를 당겨오도록 방어막 체결!
+                    if (currentScreenState == STATE_MENU) {
+                        firstBtn.requestFocus();
 
-                    // 만약 0번 버튼이 스크롤 상자 안에 있다면, 스크롤도 맨 위(0,0)로 확실하게 당겨줍니다.
-                    android.view.ViewParent parent = firstBtn.getParent();
-                    if (parent != null && parent.getParent() instanceof android.widget.ScrollView) {
-                        ((android.widget.ScrollView) parent.getParent()).scrollTo(0, 0);
+                        android.view.ViewParent parent = firstBtn.getParent();
+                        if (parent != null && parent.getParent() instanceof android.widget.ScrollView) {
+                            ((android.widget.ScrollView) parent.getParent()).scrollTo(0, 0);
+                        }
                     }
                 }
-            }, 50); // 💡 50ms 딜레이: 화면이 렌더링될 완벽한 틈을 벌려줌
+            }, 50);
         }
     }
     private void collectAudioFilesAsFile(File dir, List<File> list) {
@@ -6486,7 +6583,7 @@ public class MainActivity extends Activity {
             startActivity(intent);
 
         } catch (Exception e) {
-            Toast.makeText(this, "Install Failed.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Install Failed."), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -6754,35 +6851,45 @@ public class MainActivity extends Activity {
 
         updatePlayerStatusIndicators(); // 💖 아이콘 새로고침
     }
-    // ⭕ [아래 코드로 덮어쓰기]
     public void updatePlayerUI() {
-        try {
-            if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
-                File currentFile = currentPlaylist.get(currentIndex);
-                updateAudioQualityInfo(currentFile);
+            try {
+                if (!currentPlaylist.isEmpty() && currentIndex >= 0 && currentIndex < currentPlaylist.size()) {
+                    File currentFile = currentPlaylist.get(currentIndex);
+                    updateAudioQualityInfo(currentFile);
 
-                // 🚀 곡이 바뀔 때마다 같은 이름의 .lrc 파일이 있는지 탐색합니다!
-                loadLyrics(currentFile);
-                refreshVisualizerState();
+                    // 🚀 곡이 바뀔 때마다 같은 이름의 .lrc 파일이 있는지 탐색합니다!
+                    loadLyrics(currentFile);
+                    refreshVisualizerState();
+                }
+                com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
 
+                if (am.isPlaying()) {
+                    ivAlbumArt.setAlpha(1.0f);
+                    ivPauseOverlay.setVisibility(View.GONE);
+                    progressHandler.post(updateProgressTask);
+                } else {
+                    ivAlbumArt.setAlpha(0.4f);
+                    ivPauseOverlay.setVisibility(View.VISIBLE);
+                    progressHandler.removeCallbacks(updateProgressTask);
+                }
 
-            }
-            com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-
-            if (am.isPlaying()) {
-                ivAlbumArt.setAlpha(1.0f);
-                ivPauseOverlay.setVisibility(View.GONE);
-                progressHandler.post(updateProgressTask);
-            } else {
-                ivAlbumArt.setAlpha(0.4f);
-                ivPauseOverlay.setVisibility(View.VISIBLE);
-                progressHandler.removeCallbacks(updateProgressTask);
-            }
-
-            updateGlobalStatusPlayIcon(); // 🚀 [통합 교체] 라디오와 음악 상태바를 완벽하게 동기화!
-            updatePlayerStatusIndicators();
-        } catch (Exception e) {}
-    }
+                updateGlobalStatusPlayIcon();
+                updatePlayerStatusIndicators(); // 💡 에러가 났던 그 함수! (이제 정상 작동합니다)
+// 🚀 [차량 블루투스 연동] 곡 정보와 재생/정지 상태를 실시간으로 차량에 쏴줍니다!
+                sendBluetoothMetaToCar();
+                updateBluetoothPlaybackState(am.isPlaying());
+                // 🚀 [실시간 동기화] 메인 화면에서 나우 플레잉을 주시하고 있을 때 백그라운드에서 곡이 바뀌면 프리뷰 이미지도 실시간 리프레시!
+                if (currentScreenState == STATE_MENU && ivWidgetFocusImage != null && tvFocusPreviewClock != null && tvFocusPreviewClock.getVisibility() == View.VISIBLE) {
+                    for (ThemeManager.MenuElement el : ThemeManager.getCurrentTheme().menuElements) {
+                        if ("OPEN_PLAYER".equals(el.action)) {
+                            updateFocusPreviewLiveContent(el);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {}
+        }
+        // 🚀 [버그 원인 제거 완료] 여기에 있던 불필요한 잉여 중괄호 '}' 하나를 완벽하게 삭제했습니다!
     private void adjustVolume(boolean up) {
         int currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         int maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
@@ -7105,10 +7212,15 @@ public class MainActivity extends Activity {
                         if (currentBrowserMode == BROWSER_ROOT) {
                             changeScreen(STATE_MENU);
                         } else if (currentBrowserMode == BROWSER_COVER_FLOW) {
-                            // 🚀 커버 플로우 화면에서 뒤로 나가면 라이브러리 메인으로 복귀하고 방금 그 버튼을 조명합니다!
-                            currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "💿 " + t("Cover Flow");
-                            buildFileBrowserUI();
+                            // 🚀 [지능형 다이렉트 퇴근 센서 장착]
+                            // 직전 브라우저 메뉴의 기억(lastBrowserFocusText)이 없다면? 메인 메뉴에서 바로 들어온 것입니다!
+                            if (lastBrowserFocusText == null || lastBrowserFocusText.trim().isEmpty()) {
+                                changeScreen(STATE_MENU); // 🟢 다른 숏컷들처럼 메인 화면으로 즉시 다이렉트 복귀!
+                            } else {
+                                // 라이브러리 메뉴를 거쳐서 들어왔던 정석 경로라면 원래대로 부모 메뉴로 복귀
+                                currentBrowserMode = BROWSER_ROOT;
+                                buildFileBrowserUI();
+                            }
                         } else if (currentBrowserMode == BROWSER_FOLDER) {
                             // 🚀 [버그 수정] 현재 모드(음악/오디오북)에 맞춰서 최상위 폴더에 도달했는지 지능적으로 체크합니다!
                             boolean isAtFolderRoot = false;
@@ -7125,7 +7237,7 @@ public class MainActivity extends Activity {
                             // 모드별 최상위 폴더이거나 기기 전체 루트 폴더일 때 뒤로 가기를 누르면 라이브러리 메인(BROWSER_ROOT)으로 복귀!
                             if (isAtFolderRoot || currentFolder.getAbsolutePath().equals("/storage/sdcard0")) {
                                 currentBrowserMode = BROWSER_ROOT;
-                                lastBrowserFocusText = "📁 " + t("Folders");
+                                lastBrowserFocusText = t("Folders");
                                 buildFileBrowserUI();
                             } else {
                                 String exitedName = currentFolder.getName(); // 나온 폴더 이름 기억!
@@ -7133,7 +7245,7 @@ public class MainActivity extends Activity {
                                 if (currentFolder == null) {
                                     changeScreen(STATE_MENU);
                                 } else {
-                                    lastBrowserFocusText = "📁 " + exitedName;
+                                    lastBrowserFocusText = exitedName;
                                     buildFileBrowserUI();
                                 }
                             }
@@ -7147,7 +7259,7 @@ public class MainActivity extends Activity {
                                 currentBrowserMode = virtualQueryType.equals("ALL") ? BROWSER_ROOT
                                         : (virtualQueryType.equals("ARTIST") ? BROWSER_ARTISTS : BROWSER_ALBUMS);
                                 if (currentBrowserMode == BROWSER_ROOT) {
-                                    lastBrowserFocusText = "🎵 " + t("All Songs");
+                                    lastBrowserFocusText = t("All Songs");
                                     buildFileBrowserUI();
                                 } else {
                                     buildVirtualCategories(virtualQueryType);
@@ -7155,26 +7267,36 @@ public class MainActivity extends Activity {
                             }
                         } else if (currentBrowserMode == BROWSER_ARTISTS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "👤 " + t("Artists");
+                            lastBrowserFocusText =t("Artists");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_FAVORITES) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "💖 " + t("My Favorites");
+                            lastBrowserFocusText =t("My Favorites");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_AUDIOBOOKS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "🎧 " + t("All Audiobooks");
+                            lastBrowserFocusText = t("All Audiobooks");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_PLAYLISTS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "📝 " + t("Playlists");
+                            lastBrowserFocusText = t("Playlists");
                             buildFileBrowserUI();
                         } else if (currentBrowserMode == BROWSER_M3U_SONGS) {
                             currentBrowserMode = BROWSER_PLAYLISTS;
                             buildM3uPlaylistUI();
                         } else if (currentBrowserMode == BROWSER_ALBUMS) {
                             currentBrowserMode = BROWSER_ROOT;
-                            lastBrowserFocusText = "💿 " + t("Albums");
+                            lastBrowserFocusText = t("Albums");
+                            buildFileBrowserUI();
+                        }
+                        // 🚀 [여기에 아래 코드를 추가하여 퇴근 경로를 뚫어줍니다!]
+                        else if (currentBrowserMode == BROWSER_YEARS) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = t("Years"); // 💡 나갔을 때 휠 포커스가 자동으로 'Years' 버튼에 록온되도록 세팅!
+                            buildFileBrowserUI();
+                        } else if (currentBrowserMode == BROWSER_GENRES) {
+                            currentBrowserMode = BROWSER_ROOT;
+                            lastBrowserFocusText = t("Genres"); // 💡 나갔을 때 휠 포커스가 자동으로 'Genres' 버튼에 록온되도록 세팅!
                             buildFileBrowserUI();
                         }
                     }
@@ -7196,16 +7318,18 @@ public class MainActivity extends Activity {
                         isRadioUIShowing = false;
                         isRadioSettingsMode = false;
                         isRadioAdjustingFreq = false;
-                        changeScreen(STATE_MENU); // 메인 페이지로 복귀 신호 발사!
+                        applyThemeToMainMenu(); // 🚀 추가! 라디오에서 메인 복귀 시 갱신
+                        changeScreen(STATE_MENU);
                         clickFeedback();
                         return true;
                     }
 
-                    isRadioUIShowing = false; // 완전히 빠져나갈 때는 확실히 꺼줍니다.
+                    isRadioUIShowing = false;
 
                     // 🚀 [라우팅 정화 완벽 복구] 깊이(Depth)를 파악하여 알맞은 상위 메뉴로 완벽하게 돌아갑니다!
                     if (currentSettingsDepth == 0) {
-                        changeScreen(STATE_MENU); // 메인 설정창(깊이 0)이면 홈 화면으로 복귀!
+                        applyThemeToMainMenu(); // 🚀 추가! 설정창을 완전히 빠져나갈 때 메인 화면 완벽 갱신!
+                        changeScreen(STATE_MENU);
                     } else if (currentSettingsDepth == 1) {
                         buildSettingsUI(); // 서브 메뉴창(깊이 1)이면 메인 설정창으로 1단계 복귀!
                     } else if (currentSettingsDepth == 2) {
@@ -7282,23 +7406,23 @@ public class MainActivity extends Activity {
                     if (keyCode == 21) {
                         int currentPos = listVirtualSongs.getSelectedItemPosition();
                         if (currentPos <= 0) {
-                            // 🚀 [무한 스크롤] 맨 위에서 위로 올리면 맨 아래(끝)로 점프!
-                            final int lastPos = listVirtualSongs.getCount() - 1;
-                            listVirtualSongs.setSelection(lastPos);
-                            listVirtualSongs.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    int visiblePos = lastPos - listVirtualSongs.getFirstVisiblePosition();
-                                    if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
-                                        listVirtualSongs.getChildAt(visiblePos).requestFocus();
+                            // 🚀 [루프 스크롤 조건 제어] 오직 활성화 상태일 때만 맨 아래 끝단 트랙으로 순간이동합니다.
+                            if (isLoopScrollOn) {
+                                final int lastPos = listVirtualSongs.getCount() - 1;
+                                listVirtualSongs.setSelection(lastPos);
+                                listVirtualSongs.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        int visiblePos = lastPos - listVirtualSongs.getFirstVisiblePosition();
+                                        if (visiblePos >= 0 && visiblePos < listVirtualSongs.getChildCount()) {
+                                            listVirtualSongs.getChildAt(visiblePos).requestFocus();
+                                        }
                                     }
-                                }
-                            });
+                                });
+                            }
                         } else {
-                            listVirtualSongs
-                                    .dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
-                            listVirtualSongs
-                                    .dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP));
                         }
                         clickFeedback();
                         return true;
@@ -7306,20 +7430,20 @@ public class MainActivity extends Activity {
                     if (keyCode == 22) {
                         int currentPos = listVirtualSongs.getSelectedItemPosition();
                         if (currentPos == listVirtualSongs.getCount() - 1) {
-                            // 🚀 [무한 스크롤] 맨 아래에서 아래로 내리면 맨 위(처음)로 점프!
-                            listVirtualSongs.setSelection(0);
-                            listVirtualSongs.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (listVirtualSongs.getChildCount() > 0)
-                                        listVirtualSongs.getChildAt(0).requestFocus();
-                                }
-                            });
+                            // 🚀 [루프 스크롤 조건 제어] 오직 활성화 상태일 때만 맨 첫 트랙으로 순간이동 복귀합니다.
+                            if (isLoopScrollOn) {
+                                listVirtualSongs.setSelection(0);
+                                listVirtualSongs.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (listVirtualSongs.getChildCount() > 0)
+                                            listVirtualSongs.getChildAt(0).requestFocus();
+                                    }
+                                });
+                            }
                         } else {
-                            listVirtualSongs
-                                    .dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
-                            listVirtualSongs
-                                    .dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
+                            listVirtualSongs.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
                         }
                         clickFeedback();
                         return true;
@@ -7370,7 +7494,7 @@ public class MainActivity extends Activity {
                                     break;
                                 }
                             }
-                            if (!moved) {
+                            if (!moved && isLoopScrollOn) {
                                 for (int i = parent.getChildCount() - 1; i > index; i--) {
                                     View n = parent.getChildAt(i);
                                     if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
@@ -7438,7 +7562,7 @@ public class MainActivity extends Activity {
                                     break;
                                 }
                             }
-                            if (!moved) {
+                            if (!moved && isLoopScrollOn) {
                                 for (int i = 0; i < index; i++) {
                                     View n = parent.getChildAt(i);
                                     if (n != null && n.getVisibility() == View.VISIBLE && n.isFocusable()) {
@@ -7509,6 +7633,7 @@ public class MainActivity extends Activity {
 
                 // 그 외의 키가 눌리면 화면 깨우기 조향 장치 가동!
                 isFakeScreenOff = false;
+                autoManageWifiPower(false); // 🚀 [절전 모드 해제]
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -7781,7 +7906,8 @@ public class MainActivity extends Activity {
     private void buildDateTimeUI() {
         currentSettingsDepth = 1; // 🚀 메인 설정은 깊이 0
         containerSettingsItems.removeAllViews();
-        String formatRightText = is24HourFormat ? "24 Hour" : "12 Hour";
+        // 🚀 [수정] 12시간/24시간 텍스트도 번역기를 거치도록 t()를 씌워줍니다!
+        String formatRightText = is24HourFormat ? t("24 Hour") : t("12 Hour");
         final LinearLayout rowFormat = createSettingRow("Time Format", formatRightText);
         rowFormat.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -8067,6 +8193,8 @@ public class MainActivity extends Activity {
             lastAlbumArtBytes = bytes;
             updateMainMenuBackground();
             refreshNowPlayingPreview();
+            // 🚀 앨범 아트가 새로 로딩되었으니 차량 화면에도 새로 쏴줍니다!
+            sendBluetoothMetaToCar();
 
         } catch (Exception e) {
         }
@@ -8272,7 +8400,54 @@ public class MainActivity extends Activity {
         }
     }
 
+    // 🚀 [신규 엔진] APK 내부에 탑재된 언어팩(assets/languages)을 기기 저장소로 자동 복사합니다!
+    private void installBundledLanguages() {
+        SharedPreferences prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
+        int lastInstalledVersion = prefs.getInt("last_lang_version", 0);
 
+        int currentAppVersion = 1;
+        try {
+            android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            currentAppVersion = pInfo.versionCode;
+        } catch (Exception e) {}
+
+        // 🚀 이미 최신 버전의 기본 언어팩이 기기에 깔려있다면 중복 복사를 막아 속도를 높입니다.
+        if (lastInstalledVersion >= currentAppVersion) return;
+
+        // 💡 주의: 아래 경로는 현재 아티스트님의 LanguageManager가 파일을 읽어오는 폴더 경로로 맞춰주세요!
+        // 보통 "/storage/sdcard0/Y1_Languages" 등으로 설정되어 있을 것입니다.
+        File targetDir = new File("/storage/sdcard0/Y1_Languages");
+        if (!targetDir.exists()) targetDir.mkdirs();
+
+        try {
+            android.content.res.AssetManager assetManager = getAssets();
+            // assets/languages 폴더 안에 있는 파일 명단을 싹 긁어옵니다.
+            String[] files = assetManager.list("languages");
+
+            if (files != null) {
+                for (String filename : files) {
+                    if (filename.toLowerCase().endsWith(".json")) {
+                        java.io.InputStream is = assetManager.open("languages/" + filename);
+                        File outFile = new File(targetDir, filename);
+                        java.io.FileOutputStream fout = new java.io.FileOutputStream(outFile);
+
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = is.read(buffer)) != -1) {
+                            fout.write(buffer, 0, count);
+                        }
+                        fout.close();
+                        is.close();
+                    }
+                }
+            }
+            // 🚀 성공적으로 복사했다면, 앱 버전을 금고에 기록해 다음 부팅 시 건너뛰도록 합니다.
+            prefs.edit().putInt("last_lang_version", currentAppVersion).commit();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
     private void installBundledThemes() {
         SharedPreferences prefs = getSharedPreferences("Y1_SETTINGS", MODE_PRIVATE);
@@ -8349,16 +8524,24 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
         containerSettingsItems.removeAllViews();
 
-        // 1. 프로필 선택 라우터
+        // 🚀 2. 서브 설정창 EQ 표시
         String activeName = "Normal";
         if (currentEqProfile.startsWith("preset_")) {
             int pIdx = Integer.parseInt(currentEqProfile.replace("preset_", ""));
-            if (pIdx < eqPresetNames.size()) activeName = eqPresetNames.get(pIdx);
+            if (pIdx < eqPresetNames.size()) activeName = t(eqPresetNames.get(pIdx)); // 🚀 번역 적용
         } else {
-            activeName = currentEqProfile.replace("custom_", "") + " (User)";
+            activeName = currentEqProfile.replace("custom_", ""); // 🚀 꼬리표 번역
         }
         LinearLayout rowSelect = createSettingRow("EQ Profile / Preset", activeName + " 〉");
-        rowSelect.setOnClickListener(v -> { clickFeedback(); buildEqProfileSelectorUI(); });
+
+        // 🚀 [버그 해결] 만들어둔 버튼에 클릭 이벤트를 달고, 화면에 찰칵! 추가해 줍니다.
+        rowSelect.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+                buildEqProfileSelectorUI(); // 🚀 숨겨진 프리셋 선택 리스트 창 열기!
+            }
+        });
         containerSettingsItems.addView(rowSelect);
 
         // 2. 4구 베이스 부스터
@@ -8367,7 +8550,7 @@ public class MainActivity extends Activity {
         rowBass.setOnClickListener(v -> {
             clickFeedback();
             currentBassBoostStep = (currentBassBoostStep + 1) % 4;
-            ((TextView) rowBass.getChildAt(1)).setText(steps[currentBassBoostStep]);
+            ((TextView) rowBass.getChildAt(1)).setText(t(steps[currentBassBoostStep])); // 🚀 t() 장착 완료!
             com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
             prefs.edit().putInt("bass_boost_step", currentBassBoostStep).commit();
         });
@@ -8378,25 +8561,25 @@ public class MainActivity extends Activity {
         rowVirt.setOnClickListener(v -> {
             clickFeedback();
             currentVirtualizerStep = (currentVirtualizerStep + 1) % 4;
-            ((TextView) rowVirt.getChildAt(1)).setText(steps[currentVirtualizerStep]);
+            ((TextView) rowVirt.getChildAt(1)).setText(t(steps[currentVirtualizerStep])); // 🚀 t() 장착 완료!
             com.themoon.y1.managers.AudioEffectManager.getInstance().applyAudioEffects();
             prefs.edit().putInt("virtualizer_step", currentVirtualizerStep).commit();
         });
         containerSettingsItems.addView(rowVirt);
 
         // 4. 커스텀 금고 관리 패널
-        createCategoryHeader("━ PROFILE MANAGEMENT ━");
+        createCategoryHeader("━ "+t("PROFILE MANAGEMENT")+" ━");
         if (currentEqProfile.startsWith("custom_")) {
-            Button btnSave = createListButton("💾 " + t("Save Current Configuration"));
+            android.view.View btnSave = createListButtonWithIcon("\uE161", t("Save Current Configuration"));
             btnSave.setOnClickListener(v -> {
                 clickFeedback();
                 com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
-                Toast.makeText(this, "Configuration Saved!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Configuration Saved!"), Toast.LENGTH_SHORT).show();
             });
             containerSettingsItems.addView(btnSave);
 
-            Button btnDel = createListButton("🗑 " + t("Delete Current Profile"));
-            btnDel.setTextColor(0xFFFF4444);
+            android.view.View btnDel = createListButtonWithIcon("\uE872", t("Delete Current Profile"), 0xFFFF4444);
+
             btnDel.setOnClickListener(v -> {
                 clickFeedback();
                 com.themoon.y1.managers.AudioEffectManager.getInstance().deleteCustomEqProfile(currentEqProfile.replace("custom_", ""));
@@ -8407,7 +8590,7 @@ public class MainActivity extends Activity {
             containerSettingsItems.addView(btnDel);
         }
 
-        Button btnCreate = createListButton("➕ " + t("Create New Profile"));
+        android.view.View btnCreate = createListButtonWithIcon("\uE145", t("Create New Profile"));
         btnCreate.setOnClickListener(v -> {
             clickFeedback();
             String listStr = prefs.getString("custom_eq_list", "");
@@ -8440,14 +8623,14 @@ public class MainActivity extends Activity {
         containerSettingsItems.addView(btnCreate);
 
         // 🚀 5. 고급 그래픽 이퀄라이저 (Graphic EQ) 스튜디오 진입 버튼
-        createCategoryHeader("━ GRAPHIC EQUALIZER ━");
-        LinearLayout btnGraphicEq = createSettingRow("Graphic Equalizer", "Open Editor 〉");
+        createCategoryHeader("━ "+t("GRAPHIC EQUALIZER")+" ━");
+        LinearLayout btnGraphicEq = createSettingRow("Graphic Equalizer", t("Open Editor")+" 〉");
         btnGraphicEq.setOnClickListener(new android.view.View.OnClickListener() {
             @Override
             public void onClick(android.view.View v) {
                 clickFeedback();
                 if (currentEqProfile.startsWith("preset_")) {
-                    android.widget.Toast.makeText(MainActivity.this, "Please create a Custom Profile to edit!", android.widget.Toast.LENGTH_LONG).show();
+                    android.widget.Toast.makeText(MainActivity.this, t("Please create a Custom Profile to edit!"), android.widget.Toast.LENGTH_LONG).show();
                 } else {
                     buildGraphicEqualizerUI(); // 대망의 그래픽 EQ 스튜디오 화면으로 진입!
                 }
@@ -8463,19 +8646,21 @@ public class MainActivity extends Activity {
         currentSettingsDepth = 2;
         containerSettingsItems.removeAllViews();
 
+        // 🚀 3. 리스트를 쫙 뽑아낼 때 번역
         if (equalizer != null) {
             for (int i = 0; i < eqPresetNames.size(); i++) {
                 final int pIdx = i;
                 final String pId = "preset_" + pIdx;
                 String prefix = currentEqProfile.equals(pId) ? "✔ " : "   ";
-                Button btn = createListButton(prefix + eqPresetNames.get(i));
+                // 🚀 시스템에서 가져온 영어 이름을 가로채서 번역기에 쏙 넣습니다!
+                Button btn = createListButton(prefix + t(eqPresetNames.get(i)));
                 if (currentEqProfile.equals(pId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
                 btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = pId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
                 containerSettingsItems.addView(btn);
             }
         }
 
-        createCategoryHeader("━ SELECT USER PROFILES ━");
+        createCategoryHeader("━ "+t("SELECT USER PROFILES")+" ━");
         String listStr = prefs.getString("custom_eq_list", "");
         if (!listStr.trim().isEmpty()) {
             for (final String prof : listStr.split(",")) {
@@ -8488,7 +8673,7 @@ public class MainActivity extends Activity {
                 containerSettingsItems.addView(btn);
             }
         } else {
-            TextView tvEmpty = new TextView(this); tvEmpty.setText("   No custom profiles found.");
+            TextView tvEmpty = new TextView(this); tvEmpty.setText("   " + t("No custom profiles found."));
             tvEmpty.setTextColor(0xFF888888); tvEmpty.setPadding(20, 10, 20, 10);
             containerSettingsItems.addView(tvEmpty);
         }
@@ -8513,10 +8698,10 @@ public class MainActivity extends Activity {
         currentAdjustingBand = -1;
 
         containerSettingsItems.removeAllViews();
-        createCategoryHeader("━ GRAPHIC EQUALIZER STUDIO ━");
+        createCategoryHeader("━ "+t("GRAPHIC EQUALIZER")+" ━");
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("Editing: " + currentEqProfile.replace("custom_", "") + " (User)");
+        tvTitle.setText(t("Editing: ") + currentEqProfile.replace("custom_", "") + " (User)");
         tvTitle.setTextColor(0xFFFF8800);
         tvTitle.setGravity(android.view.Gravity.CENTER);
         tvTitle.setPadding(0, 10, 0, 20);
@@ -8637,7 +8822,7 @@ public class MainActivity extends Activity {
         containerSettingsItems.addView(eqContainer);
 
         // 🚀 [UX 개조 1] "완료/닫기"라는 애매한 표현 대신 믹싱 콘솔 본연의 "저장하기" 명칭으로 교체!
-        Button btnClose = createListButton("Save Profile");
+        Button btnClose = createListButton(t("Save Profile"));
         btnClose.setId(8500);
 
         btnClose.setOnClickListener(new android.view.View.OnClickListener() {
@@ -8649,7 +8834,7 @@ public class MainActivity extends Activity {
                 com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(name); // 2. 🚀 [핵심] 유저 공유용 외부 개별 파일(.json) 실시간 내보내기 실행!
                 com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); // 3. 오디오 칩셋에 실시간 음압 가해 즉시 적용
 
-                android.widget.Toast.makeText(MainActivity.this, "💾 File saved successfully!", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(MainActivity.this, t("File saved successfully!"), android.widget.Toast.LENGTH_SHORT).show();
                 buildEqualizerSettingsUI(); // 4. 이전 페이지로 복귀하면 최상단 라우터에 방금 지정한 이름이 즉시 동기화되어 표기됩니다!
             }
         });
@@ -8924,7 +9109,7 @@ public class MainActivity extends Activity {
                 } while (newPlaylistFile.exists());
 
                 writeSongToM3uFile(newPlaylistFile, songFile, false);
-                Toast.makeText(MainActivity.instance, "Created 'Playlist " + (count-1) + "' successfully!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.instance, t("Created Playlist ") + (count-1) +" "+ t("successfully!"), Toast.LENGTH_SHORT).show();
                 dialog.dismiss();
             }
         });
@@ -8940,7 +9125,7 @@ public class MainActivity extends Activity {
                 public void onClick(View v) {
                     clickFeedback();
                     writeSongToM3uFile(targetM3u, songFile, true);
-                    Toast.makeText(MainActivity.instance, "Added to playlist successfully!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.instance, t("Added to playlist successfully!"), Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
                 }
             });
@@ -9026,7 +9211,7 @@ public class MainActivity extends Activity {
             }
             bw.close();
 
-            Toast.makeText(this, "Removed successfully.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Removed successfully."), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -9212,11 +9397,153 @@ public class MainActivity extends Activity {
             if (tvLoadingProgress != null) {
                 tvLoadingProgress.setTextSize(24f);
                 // 🚀 [수리 2] 실수로 주석(//) 처리되어 잠들어 있던 텍스트 출력 엔진을 다시 살려냅니다!
-                tvLoadingProgress.setText(String.format(java.util.Locale.US, "Tuning Frequency...\n\n%.1f MHz", freq));
+                tvLoadingProgress.setText(String.format(java.util.Locale.US, t("Tuning Frequency...\n\n%.1f MHz"), freq));
             }
 
             radioFreqHandler.postDelayed(hideRadioFreqTask, 1500);
         }
     }
+    // 🚀 [궁극의 아키텍처 완료] 하드코딩 용어 없이 오직 객체간의 parent_id 결합 구조만 보고 실시간으로 스위칭하는 동적 레이아웃 엔진
+    private void updateFocusPreviewLiveContent(ThemeManager.MenuElement focusedElement) {
+        FrameLayout canvas = (FrameLayout) layoutMainMenu.findViewWithTag("dynamic_canvas");
+        if (canvas == null) return;
+
+        // 현재 테마에 등록된 모든 메뉴 요소 명단을 꺼내옵니다.
+        java.util.List<ThemeManager.MenuElement> allElements = ThemeManager.getCurrentTheme().menuElements;
+
+        boolean hasLiveWidgetActivated = false;
+
+        // 🚀 [1차 스캔] 도화지에 깔려있는 모든 위젯들을 전수 조사하여 분기 필터링을 가합니다!
+        for (ThemeManager.MenuElement el : allElements) {
+            if (el.type.equals("button") || el.type.equals("box") || el.type.equals("list_box")) continue;
+
+            // 해당 위젯의 실제 객체 주소를 캔버스 도화지 안에서 수소문해 옵니다.
+            View widgetView = null;
+            if (el.type.equals("widget_clock")) widgetView = tvWidgetClock;
+            else if (el.type.equals("widget_battery")) widgetView = widgetBatteryView;
+            else if (el.type.equals("widget_album")) widgetView = layoutWidgetAlbumContainer;
+            else if (el.type.equals("widget_analog_clock")) widgetView = customAnalogClockView;
+            else if (el.type.equals("widget_circular_battery")) widgetView = customCircularBatteryView;
+            else if (el.type.equals("widget_focus_image")) widgetView = ivWidgetFocusImage;
+
+            if (widgetView == null) continue;
+
+            // 💡 [핵심 조건문] 이 위젯이 "현재 포커스된 버튼의 ID"를 자기의 감시 대상(visibleOnFocus)으로 명시해 두었는가?!
+            if (focusedElement.id.equals(el.visibleOnFocus)) {
+
+                // 👉 매칭 성공! 사용자가 원하는 위치(JSON에 적어둔 x, y)에서 진짜 위젯의 전원을 켜줍니다!
+                widgetView.setVisibility(View.VISIBLE);
+                hasLiveWidgetActivated = true;
+
+                // 특별히 앨범 정보 위젯의 경우, 진짜 나우플레잉 연동 데이터를 실시간 주입 새로고침해 줍니다.
+                if (el.type.equals("widget_album")) {
+                    if (tvWidgetAlbumTitle != null && tvPlayerTitle != null) tvWidgetAlbumTitle.setText(tvPlayerTitle.getText());
+                    if (tvWidgetAlbumArtist != null && tvPlayerArtist != null) tvWidgetAlbumArtist.setText(tvPlayerArtist.getText());
+                    if (ivWidgetAlbum != null) {
+                        if (lastAlbumArtBytes != null && lastAlbumArtBytes.length > 0) {
+                            try {
+                                android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                                opts.inSampleSize = 2;
+                                ivWidgetAlbum.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(lastAlbumArtBytes, 0, lastAlbumArtBytes.length, opts));
+                            } catch (Exception e) { ivWidgetAlbum.setImageBitmap(ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album)); }
+                        } else {
+                            ivWidgetAlbum.setImageBitmap(ThemeManager.getCustomIcon("icon_default_album.png", this, R.drawable.default_album));
+                        }
+                    }
+                }
+            }
+            // 💡 만약 이 위젯의 감시 대상(visibleOnFocus)이 비어있다면, 사용자가 테마 설정에서 지정한 전역 스위치(isWidgetOn) 규칙에 따릅니다!
+            else if (el.visibleOnFocus == null || el.visibleOnFocus.trim().isEmpty()) {
+                if (el.type.equals("widget_clock")) widgetView.setVisibility(isWidgetClockOn ? View.VISIBLE : View.GONE);
+                else if (el.type.equals("widget_battery")) widgetView.setVisibility(isWidgetBatteryOn ? View.VISIBLE : View.GONE);
+                else if (el.type.equals("widget_album")) widgetView.setVisibility(isWidgetAlbumOn ? View.VISIBLE : View.GONE);
+                else if (el.type.equals("widget_analog_clock")) widgetView.setVisibility(isWidgetAnalogClockOn ? View.VISIBLE : View.GONE);
+                else if (el.type.equals("widget_circular_battery")) widgetView.setVisibility(isWidgetCircularBatteryOn ? View.VISIBLE : View.GONE);
+                else if (el.type.equals("widget_focus_image")) widgetView.setVisibility(isWidgetFocusImageOn ? View.VISIBLE : View.GONE);
+            }
+            // 💡 현재 포커스된 버튼과 상관없는 다른 버튼의 전용 종속 위젯이라면 전원을 차단합니다.
+            else {
+                widgetView.setVisibility(View.GONE);
+            }
+        }
+
+        // 🚀 [2차 스캔] 만약 어떤 버튼에 포커스가 갔는데, 그 버튼을 부모로 삼는 특수 위젯이 JSON 상에 단 하나도 없다면?
+        // 기존 100% 미니멀 설계 사명에 충족하도록 버튼의 고유 preview_image 이미지를 메인 전체 화면 뷰포트(ivWidgetFocusImage)에 가득 채워 띄워줍니다!
+        if (ivWidgetFocusImage != null) {
+            if (!hasLiveWidgetActivated && focusedElement.previewImage != null && !focusedElement.previewImage.isEmpty()) {
+                ivWidgetFocusImage.setVisibility(View.VISIBLE);
+                android.graphics.Bitmap bmpPreview = ThemeManager.getCustomIcon(focusedElement.previewImage, this, 0);
+                if (bmpPreview != null) ivWidgetFocusImage.setImageBitmap(bmpPreview);
+                else ivWidgetFocusImage.setImageDrawable(null);
+            } else if (!hasLiveWidgetActivated) {
+                // 보여줄 라이브 위젯도 없고, 이미지도 지정 안 된 일반 버튼이면 프리뷰 공간을 깔끔하게 비웁니다.
+                ivWidgetFocusImage.setImageDrawable(null);
+            }
+        }
+    }
+
+    // 💡 [지능형 버그 수리 완결] 상단 헤더를 제거하고, 중간 메뉴 제어 시 포커스 락을 완벽하게 유지하는 에디터 서브 메뉴
+    private void buildMainMenuVisibilitySettingsUI() {
+        currentSettingsDepth = 1;
+        containerSettingsItems.removeAllViews();
+
+        // ❌ 아티스트님의 요청에 따라 상단 카테고리 헤더 텍스트("━ SHOW / HIDE MENUS ━")를 흔적도 없이 완전히 삭제했습니다!
+
+        // 1. 현재 테마의 메인 메뉴 버튼들을 순서대로 정렬하여 가져옵니다.
+        List<ThemeManager.MenuElement> buttons = new ArrayList<>();
+        for (ThemeManager.MenuElement el : ThemeManager.getCurrentTheme().menuElements) {
+            if (el.type.equals("button")) buttons.add(el);
+        }
+        java.util.Collections.sort(buttons, new java.util.Comparator<ThemeManager.MenuElement>() {
+            @Override
+            public int compare(ThemeManager.MenuElement e1, ThemeManager.MenuElement e2) {
+                return e1.focusIndex - e2.focusIndex;
+            }
+        });
+
+        // 2. 각 버튼마다 숨김/표시(HIDDEN/SHOW) 스위치를 달아줍니다.
+        for (int i = 0; i < buttons.size(); i++) {
+            final ThemeManager.MenuElement el = buttons.get(i);
+            final int currentItemIndex = i; // 🚀 현재 이 버튼이 몇 번째 줄인지 인덱스 박제
+
+            final boolean isHidden = prefs.getBoolean("hide_btn_" + el.id, false);
+            String btnName = (el.textNormal != null && !el.textNormal.trim().isEmpty()) ? el.textNormal : el.id;
+
+            final LinearLayout row = createSettingRow(btnName, isHidden ? t("HIDDEN") : t("SHOW"));
+
+            if (isHidden) ((TextView) row.getChildAt(1)).setTextColor(ThemeManager.getTextColorSecondary());
+            else ((TextView) row.getChildAt(1)).setTextColor(ThemeManager.getTextColorPrimary());
+
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    clickFeedback();
+                    boolean newState = !prefs.getBoolean("hide_btn_" + el.id, false);
+                    prefs.edit().putBoolean("hide_btn_" + el.id, newState).commit();
+
+                    // 🚀 [해결 1] 화면 전체를 박살 내지 않고, 현재 누른 줄의 글자만 쏙 바꿔치기합니다!
+                    TextView tvRight = (TextView) row.getChildAt(1);
+                    tvRight.setText(newState ? t("HIDDEN") : t("SHOW"));
+
+                    // 🚀 [해결 2] 현재 휠 포커스가 닿아있는 상태이므로 포커스 색상(보통 검은색 등)을 그대로 유지시킵니다.
+                    if (row.hasFocus()) {
+                        tvRight.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                    } else {
+                        if (newState) tvRight.setTextColor(ThemeManager.getTextColorSecondary());
+                        else tvRight.setTextColor(ThemeManager.getTextColorPrimary());
+                    }
+
+                    // 💡 [해결 3] 화면은 가만히 놔두고, 보이지 않는 메인 메뉴판만 백그라운드에서 조용히 재조립합니다.
+                  //  applyThemeToMainMenu();
+
+                    // ❌ [원인 제거] 화면을 싹 지우고 다시 그렸던 'buildMainMenuVisibilitySettingsUI()' 재호출과
+                    // 억지로 포커스를 꽂아주던 딜레이 함수(postDelayed)를 흔적도 없이 삭제했습니다!
+                }
+            });
+            containerSettingsItems.addView(row);
+        }
+
+    }
+
 }
 

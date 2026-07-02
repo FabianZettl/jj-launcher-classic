@@ -38,6 +38,8 @@ public class AudioPlayerManager {
 
     private AudioPlayerManager() {}
 
+
+
     public static synchronized AudioPlayerManager getInstance() {
         if (instance == null) instance = new AudioPlayerManager();
         return instance;

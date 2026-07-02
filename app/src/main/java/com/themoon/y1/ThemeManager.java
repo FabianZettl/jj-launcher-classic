@@ -11,7 +11,7 @@ import java.util.List;
 public class ThemeManager {
 
     public static class MenuElement {
-        public String id, type, parentId; // 🚀 [추가] parentId 변수 추가!
+        public String id, type, parentId, liveWidget, visibleOnFocus; // 🚀 [대개조] liveWidget 변수 전격 추가!
         public int x, y, width, height;
         public String textNormal, textFocused, textRight;
         public String textRightColor, textRightFocusedColor;
@@ -23,14 +23,16 @@ public class ThemeManager {
         public int focusOffsetX, focusOffsetY;
         public float focusScale;
 
-        // 🚀 생성자에 parentId 파라미터를 추가합니다!
-        public MenuElement(String id, String type, String parentId, int x, int y, int width, int height,
+        // 🚀 생성자 파라미터 맨 끝 쪽에 String liveWidget 을 추가합니다!
+        public MenuElement(String id, String type, String parentId, String liveWidget, String visibleOnFocus, int x, int y, int width, int height,
                            String textNormal, String textFocused, String textRight,
                            String textRightColor, String textRightFocusedColor,
                            String iconNormal, String iconFocused, String previewImage, String action,
                            String gravity, int radius, int focusIndex, int textSize, int textSecondarySize,
-                           String textPosition, String textAlign, String bgColor, int padding,int focusOffsetX, int focusOffsetY, float focusScale) {
-            this.id = id; this.type = type; this.parentId = parentId; // 🚀 맵핑
+                           String textPosition, String textAlign, String bgColor, int padding, int focusOffsetX, int focusOffsetY, float focusScale) {
+            this.id = id; this.type = type; this.parentId = parentId;
+            this.liveWidget = liveWidget; // 🚀 맵핑 완료
+            this.visibleOnFocus = visibleOnFocus; // 🚀 매핑 완료
             this.x = x; this.y = y;
             this.width = width; this.height = height;
             this.textNormal = textNormal; this.textFocused = textFocused; this.textRight = textRight;
@@ -77,17 +79,37 @@ public class ThemeManager {
         return defaultColor;
     }
 
+    // 🚀 [디폴트 테마 대혁신] 내장 리소스와 외부 폴더를 양방향으로 완벽 지원하는 하이브리드 비트맵 채굴기
     public static android.graphics.Bitmap getCustomIcon(String iconFileName, android.content.Context context, int defaultResId) {
         if (!availableThemes.isEmpty() && iconFileName != null && !iconFileName.isEmpty()) {
             String folder = getCurrentTheme().folderPath;
+
+            // 💡 Case 1: 외부 SD카드 다운로드 테마일 경우 물리 파일 경로 추적
             if (!folder.equals("default")) {
                 File iconFile = new File(folder, iconFileName);
                 if (iconFile.exists()) {
                     try { return android.graphics.BitmapFactory.decodeFile(iconFile.getAbsolutePath()); } catch (Exception e) {}
                 }
             }
+            // 💡 Case 2: 앱 순정 디폴트 테마일 경우 res/drawable 폴더에서 유니크 네임으로 역추적 추출!
+            else {
+                try {
+                    String resName = iconFileName;
+                    if (resName.contains(".")) {
+                        resName = resName.substring(0, resName.lastIndexOf(".")); // 확장자(.png) 제거 공정
+                    }
+                    // 런타임에 drawable 폴더 안에서 텍스트 파일명과 일치하는 고유 리소스 ID(int)를 동적 획득합니다!
+                    int resId = context.getResources().getIdentifier(resName, "drawable", context.getPackageName());
+                    if (resId != 0) {
+                        return android.graphics.BitmapFactory.decodeResource(context.getResources(), resId);
+                    }
+                } catch (Exception e) {}
+            }
         }
-        return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId);
+        if (defaultResId != 0) {
+            try { return android.graphics.BitmapFactory.decodeResource(context.getResources(), defaultResId); } catch (Exception e) {}
+        }
+        return null;
     }
 
     public static int getStatusBarBackgroundColor() {
@@ -101,13 +123,27 @@ public class ThemeManager {
         ThemeData defaultTheme = new ThemeData("default", "Dark (Default)", android.graphics.Typeface.DEFAULT,
                 0xFFFFFFFF, 0xFF888888, 0x88000000, 0x88000000, 0x15FFFFFF, 0xDDFFFFFF, 0xFF000000, 15);
 
-        // 🚀 [버그 해결] 세 번째 자리에 parentId 값인 빈칸("")을 추가하여 새 공장 규칙과 완벽하게 일치시켰습니다!
-        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", "", 0, 20, 250, 50, "Now Playing", "Now Playing", "", "", "", "icon_now_playing.png", "", "", "OPEN_PLAYER", "top|left", -1, 1, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", "", 0, 80, 250, 50, "Music", "Music", "", "", "", "icon_music.png", "", "", "OPEN_BROWSER", "top|left", -1, 2, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", "", 0, 140, 250, 50, "Radio", "Radio", "", "", "", "icon_radio.png", "", "", "OPEN_RADIO", "top|left", -1, 3, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", "", 0, 200, 250, 50, "Settings", "Settings", "", "", "", "icon_setting.png", "", "", "OPEN_SETTINGS", "top|left", -1, 4, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
-        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", "", 0, 260, 250, 50, "PC Upload", "PC Upload", "", "", "", "icon_server.png", "", "", "OPEN_WEBSERVER", "top|left", -1, 5, 18, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
+        // 🚀 [버그 수리 완료] 모든 요소의 인자 순서와 개수(30개)를 생성자 포맷과 100% 일치하도록 칼같이 재정렬했습니다!
 
+        // 1. 기본 가두리 프레임 및 스크롤 상자 배치
+        defaultTheme.menuElements.add(new MenuElement("box", "box", "", "none", "", 0, 0, 240, 325, "", "", "", "", "", "", "", "", "NONE", "top|left", 0, -1, 16, -1, "bottom", "left", "#A0000000", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("main_scroll_list", "list_box", "", "none", "", 10, 15, 220, 290, "", "", "", "", "", "", "", "", "NONE", "top|left", -1, -1, 16, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+
+        // 2. 왼쪽 메인 리스트 전용 버튼 8종 세트 (평상시 아이콘은 비우고 우측 프리뷰용 파일명 정상 배치)
+        defaultTheme.menuElements.add(new MenuElement("btn_now", "button", "main_scroll_list", "none", "", 0, 0, -1, 48, "Now Playing", "Now Playing", "〉", "", "", "", "", "music_circle.png", "OPEN_PLAYER", "top|left", -1, 0, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_music", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Music", "Music", "〉", "", "", "", "", "music_list.png", "OPEN_BROWSER", "top|left", -1, 1, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_radio", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Radio", "Radio", "〉", "", "", "", "", "radio_circle.png", "OPEN_RADIO", "top|left", -1, 2, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_audiobook", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Audiobooks", "Audiobooks", "〉", "", "", "", "", "music_list.png", "OPEN_AUDIOBOOKS", "top|left", -1, 3, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_bt", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Bluetooth", "Bluetooth", "〉", "", "", "", "", "bluetooth_circle.png", "OPEN_BLUETOOTH", "top|left", -1, 4, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_wifi", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Wi-Fi", "Wi-Fi", "〉", "", "", "", "", "icon_wifi.png", "OPEN_WIFI", "top|left", -1, 5, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_set", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "Settings", "Settings", "〉", "", "", "", "", "setting_circle.png", "OPEN_SETTINGS", "top|left", -1, 6, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("btn_web", "button", "main_scroll_list", "none", "", 0, 8, -1, 48, "PC Upload", "PC Upload", "〉", "", "", "", "", "file_sync.png", "OPEN_WEBSERVER", "top|left", -1, 7, 22, -1, "bottom", "left", "", 0, 0, 0, 1.0f));
+
+        // 3. 우측 포커스 연동형 다이내믹 위젯 세트 (visible_on_focus 타겟 매핑 동기화 및 30개 파라미터 공식 완전 일치)
+        // 3. 우측 포커스 연동형 다이내믹 위젯 세트 (visible_on_focus 타겟 매핑 동기화 및 30개 파라미터 공식 완전 일치)
+        defaultTheme.menuElements.add(new MenuElement("widget_clock", "widget_clock", "", "none", "btn_now", 284, 18, 150, 81, "", "", "", "", "", "", "", "", "NONE", "top|left", 0, -1, 16, -1, "bottom", "left", "", 8, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("widget_album", "widget_album", "", "none", "btn_now", 254, 13, 211, 212, "", "", "", "", "", "", "", "", "NONE", "bottom|left", -1, -1, 16, 12, "bottom", "center", "", 0, 0, 0, 1.0f));
+        defaultTheme.menuElements.add(new MenuElement("widget_bt_preview", "widget_focus_image", "", "none", "btn_bt", 254, 13, 211, 212, "", "", "", "", "", "", "", "bluetooth_circle.png", "NONE", "top|left", -1, -1, 16, -1, "bottom", "center", "", 0, 0, 0, 1.0f));
         availableThemes.add(defaultTheme);
 
         if (!themeFolder.exists()) {
@@ -204,11 +240,13 @@ public class ThemeManager {
                                 for (int i = 0; i < menuArray.length(); i++) {
                                     JSONObject el = menuArray.getJSONObject(i);
 
-                                    // 🚀 생성자 파라미터 순서와 100% 일치하도록 JSON 추출 순서 완벽 교정
+                                    // 🚀 [추가] JSON에서 "live_widget" 명렁어를 읽어옵니다! (안 적혀있으면 기본값 "none")
                                     theme.menuElements.add(new MenuElement(
                                             el.optString("id", "item_" + i),
                                             el.optString("type", "button"),
                                             el.optString("parent_id", ""),
+                                            el.optString("live_widget", "none"),
+                                            el.optString("visible_on_focus", ""), // 💡 JSON에서 visible_on_focus 문자열을 읽어옵니다!
                                             el.optInt("x", 0),
                                             el.optInt("y", i * 60),
                                             el.optInt("width", 200),
