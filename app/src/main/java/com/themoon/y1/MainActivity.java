@@ -417,7 +417,8 @@ public class MainActivity extends Activity {
     private Y1WebServer webServer;
     private boolean isServerRunning = false;
     private int vibrationStrengthLevel = 1; // 0: Weak, 1: Normal, 2: Strong
-    private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal", "Strong"};
+    // 🚀 괄호를 덧붙여서 이퀄라이저의 Normal과 완전히 다른 Key로 분리 독립시킵니다!
+    private final String[] VIBE_STRENGTH_NAMES = {"Weak", "Normal (Vibe)", "Strong"};
     // 💡 핵심: 10ms(아주 짧게 튕김), 25ms(일반적인 휠), 50ms(묵직하게 울림)
     private final int[] VIBE_DURATIONS = {10, 25, 50};
     private Handler clockHandler = new Handler();
