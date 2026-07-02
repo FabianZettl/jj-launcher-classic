@@ -4888,20 +4888,16 @@ public class MainActivity extends Activity {
             if (!isAudiobookLibraryMode) {
                 tvBrowserPath.setText(t("Library") + ": " + t("Music"));
 
-//
 
-                // 🚀 [대개조] 텍스트 기반 이모지 대신, 머티리얼 디자인 고유 유니코드를 전달합니다!
-                // 머티리얼 디자인 아이콘에서 앨범/사진 콜렉션 아이콘 코드인 "\uE3B6" 을 사용합니다.
                 android.view.View btnCoverFlow = createListButtonWithIcon("\uE3B6", t("Cover Flow"));
 
                 // 리턴된 뷰가 LinearLayout이어도 setOnClickListener는 100% 동일하게 작동합니다!
                 btnCoverFlow.setOnClickListener(v -> { clickFeedback(); buildCoverFlowUI(); });
                 containerBrowserItems.addView(btnCoverFlow);
 
-//                Button btnFolder1 = createListButton("📁 " + t("Folders"));
-//               // android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
-//                btnFolder1.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_FOLDER; currentFolder = rootFolder; buildFileBrowserUI(); });
-//                containerBrowserItems.addView(btnFolder1);
+                android.view.View btnM3uPlaylist = createListButtonWithIcon("\uE05F", t("Playlists"));
+                btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
+                containerBrowserItems.addView(btnM3uPlaylist);
 
                 //Button btnFolder = createListButton("📁 " + t("Folders"));
                 android.view.View btnFolder = createListButtonWithIcon("\uE2C7", t("Folders"));
@@ -4930,10 +4926,6 @@ public class MainActivity extends Activity {
                 btnAll.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_VIRTUAL_SONGS; virtualQueryType = "ALL"; buildVirtualSongs(); });
                 containerBrowserItems.addView(btnAll);
 
-               // Button btnM3uPlaylist = createListButton("📝 " + t("Playlists"));
-                android.view.View btnM3uPlaylist = createListButtonWithIcon("\uE05F", t("Playlists"));
-                btnM3uPlaylist.setOnClickListener(v -> { clickFeedback(); currentBrowserMode = BROWSER_PLAYLISTS; buildM3uPlaylistUI(); });
-                containerBrowserItems.addView(btnM3uPlaylist);
 
                 android.view.View btnFav = createListButtonWithIcon("\uE87D", t("My Favorites"));
 
@@ -8882,7 +8874,7 @@ public class MainActivity extends Activity {
         if (scrollViewBrowser != null) scrollViewBrowser.setVisibility(View.VISIBLE);
         if (listVirtualSongs != null) listVirtualSongs.setVisibility(View.GONE);
         containerBrowserItems.removeAllViews();
-        tvBrowserPath.setText(t("Library") + ": 📝 " + t("Playlists"));
+        tvBrowserPath.setText(t("Library") + ": "+t("Playlists"));
 
         // 전용 재생목록 보관함 개설
         File playlistDir = new File("/storage/sdcard0/Y1_Playlists");
@@ -8904,14 +8896,14 @@ public class MainActivity extends Activity {
         java.util.Collections.sort(m3uFiles, (f1, f2) -> f1.getName().compareToIgnoreCase(f2.getName()));
 
         if (m3uFiles.isEmpty()) {
-            Button btnEmpty = createListButton("📝 No .m3u files found in Y1_Playlists");
-            btnEmpty.setTextColor(ThemeManager.getTextColorSecondary());
+            android.view.View btnEmpty = createListButtonWithIcon("\uE05F", t("No .m3u files found in Y1_Playlists"), ThemeManager.getTextColorSecondary());
             containerBrowserItems.addView(btnEmpty);
         } else {
             for (final File m3u : m3uFiles) {
                 // 확장자를 떼고 순수 재생목록 이름만 추출하여 리스트업
                 String cleanName = m3u.getName().substring(0, m3u.getName().lastIndexOf("."));
-                Button b = createListButton("📝 " + cleanName);
+//                Button b = createListButton("📝 " + cleanName);
+                android.view.View b = createListButtonWithIcon("\uE05F", cleanName);
 
                 // 1. 기존 동작: 짧게 누르면 플레이리스트 내부로 진입
                 b.setOnClickListener(v -> {

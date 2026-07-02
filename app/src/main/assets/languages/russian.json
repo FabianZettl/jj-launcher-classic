@@ -235,5 +235,6 @@
   "Widget: Dynamic Focus Image": "Виджет: Динамическое изображение",
   "Scan Complete!\nFound": "Сканирование завершено!\nНайдено каналов: ",
   "channels.\nTuning to": ".\nПереход на ",
-  "No stations found.": "Станции не найдены."
+  "No stations found.": "Станции не найдены.",
+  "No .m3u files found in Y1_Playlists": "Файлы .m3u не найдены в Y1_Playlists"
 }

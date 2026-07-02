@@ -235,5 +235,6 @@
   "Widget: Dynamic Focus Image": "小部件: 动态焦点图片",
   "Scan Complete!\nFound": "扫描完成！\n找到频道数: ",
   "channels.\nTuning to": "个。\n正在移动至: ",
-  "No stations found.": "未找到频道。"
+  "No stations found.": "未找到频道。",
+  "No .m3u files found in Y1_Playlists": "在 Y1_Playlists 中未找到 .m3u 文件"
 }

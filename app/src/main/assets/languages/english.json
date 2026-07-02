@@ -235,5 +235,6 @@
   "Widget: Dynamic Focus Image": "Widget: Dynamic Focus Image",
   "Scan Complete!\nFound": "Scan Complete!\nFound",
   "channels.\nTuning to": "channels.\nTuning to",
-  "No stations found.": "No stations found."
+  "No stations found.": "No stations found.",
+  "No .m3u files found in Y1_Playlists": "No .m3u files found in Y1_Playlists"
 }

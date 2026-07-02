@@ -235,5 +235,6 @@
   "Widget: Dynamic Focus Image": "위젯: 다이내믹 포커스 이미지",
   "Scan Complete!\nFound": "스캔 완료!\n찾은 채널 수",
   "channels.\nTuning to": "개 채널.\n이동 중",
-  "No stations found.": "채널을 찾을 수 없습니다."
+  "No stations found.": "채널을 찾을 수 없습니다.",
+  "No .m3u files found in Y1_Playlists": "Y1_Playlists 폴더에 재생목록(.m3u)이 없습니다."
 }

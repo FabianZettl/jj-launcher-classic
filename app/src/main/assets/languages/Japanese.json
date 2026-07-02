@@ -235,5 +235,6 @@
   "Widget: Dynamic Focus Image": "ウィジェット: ダイナミックフォーカス画像",
   "Scan Complete!\nFound": "スキャン完了！\n見つかったチャンネル: ",
   "channels.\nTuning to": "個。\n移動中: ",
-  "No stations found.": "チャンネルが見つかりません。"
+  "No stations found.": "チャンネルが見つかりません。",
+  "No .m3u files found in Y1_Playlists": "Y1_Playlistsに.m3uファイルが見つかりません"
 }
