@@ -31,23 +31,38 @@ public class SongListAdapter extends BaseAdapter {
 
     @Override
     public View getView(final int position, View convertView, ViewGroup parent) {
-        final Button btn;
-
-        if (convertView == null) {
-            btn = MainActivity.instance.createListButton("");
-            btn.setLayoutParams(new AbsListView.LayoutParams(
-                    AbsListView.LayoutParams.MATCH_PARENT,
-                    AbsListView.LayoutParams.WRAP_CONTENT));
-        } else {
-            btn = (Button) convertView;
-        }
-
+        // 💡 이름은 btn으로 유지하여 기존 하위 코드와의 충돌을 막고, 타입은 범용적인 View로 바꿉니다!
+        final android.view.View btn;
         final SongItem song = items.get(position);
 
-        // 🚀 [들여쓰기 정렬] 음악 모드와 오디오북 모드에 맞춰 알맞은 접두사 아이콘 부여
-        String prefixIcon = MainActivity.instance.isAudiobookLibraryMode ? "🎧 " : "🎵 ";
-        btn.setText(prefixIcon + song.title);
+        // 🚀 [유니코드 분기] 음악 모드(\uE03D)와 오디오북 모드(\uE86D)에 맞춘 유니코드 아이콘 장전
+        String iconCode = MainActivity.instance.isAudiobookLibraryMode ? "\uE310" : "\uE405";
 
+        if (convertView == null) {
+            // 🚀 1. 최초로 화면에 그릴 때는 유니코드 뷰 생성 엔진을 호출합니다!
+            btn = MainActivity.instance.createListButtonWithIcon(iconCode, song.title);
+            btn.setLayoutParams(new android.widget.AbsListView.LayoutParams(
+                    android.widget.AbsListView.LayoutParams.MATCH_PARENT,
+                    android.widget.AbsListView.LayoutParams.WRAP_CONTENT));
+        } else {
+            // 🚀 2. 스크롤을 내려서 기존 뷰를 재활용할 때
+            btn = convertView;
+            if (btn instanceof android.widget.LinearLayout) {
+                android.widget.LinearLayout layout = (android.widget.LinearLayout) btn;
+                // 레이아웃 안에 자식(아이콘, 텍스트)이 2개 이상 제대로 있다면?
+                if (layout.getChildCount() > 1) {
+                    android.widget.TextView tvIcon = (android.widget.TextView) layout.getChildAt(0);
+                    android.widget.TextView tvText = (android.widget.TextView) layout.getChildAt(1);
+
+                    // 아이콘과 텍스트 내용을 새로운 곡 데이터로 스무스하게 갈아끼웁니다!
+                    tvIcon.setText(iconCode);
+                    tvText.setText(song.title);
+                }
+            }
+        }
+
+        // (이후 아래 쪽에 btn.setOnClickListener 등의 코드가 남아있다면 그대로 두시면 됩니다!)
+        // return btn;
         // 🚀 [버그 1의 핵심 해결책] 포커스가 이동할 때 프로그레스 바가 강제로 지워지는 현상을 원천 차단합니다.
         if (MainActivity.instance.isAudiobookLibraryMode) {
             int pos = MainActivity.instance.prefs.getInt("book_pos_" + song.file.getAbsolutePath(), 0);
@@ -99,22 +114,41 @@ public class SongListAdapter extends BaseAdapter {
         return btn;
     }
 
-    // 🚀 [안전장치] 단색 배경 버튼들의 원활한 휠 이동 처리를 돕는 기본 리스너 팩토리
-    private void applyDefaultFocusListener(final Button btn, final String title) {
-        btn.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+    // 🚀 [신규] 유니코드 아이콘 뷰(LinearLayout)와 순정 버튼(Button)을 모두 지원하는 하이브리드 포커스 리스너!
+    private void applyDefaultFocusListener(final android.view.View btn, final String title) {
+        btn.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
             @Override
-            public void onFocusChange(View v, boolean hasFocus) {
+            public void onFocusChange(android.view.View v, boolean hasFocus) {
                 if (hasFocus) {
-                    btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
-                    btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
+                    btn.setBackground(MainActivity.instance.createButtonBackground(com.themoon.y1.ThemeManager.getListButtonFocusedBg()));
+
+                    // 💡 유니코드 뷰(LinearLayout)일 경우 아이콘과 텍스트를 모두 포커스 색상으로 변경!
+                    if (v instanceof android.widget.LinearLayout) {
+                        android.widget.LinearLayout row = (android.widget.LinearLayout) v;
+                        if (row.getChildCount() > 1) {
+                            ((android.widget.TextView) row.getChildAt(0)).setTextColor(com.themoon.y1.ThemeManager.getListButtonFocusedTextColor());
+                            ((android.widget.TextView) row.getChildAt(1)).setTextColor(com.themoon.y1.ThemeManager.getListButtonFocusedTextColor());
+                        }
+                    } else if (v instanceof android.widget.Button) {
+                        ((android.widget.Button) v).setTextColor(com.themoon.y1.ThemeManager.getListButtonFocusedTextColor());
+                    }
+
                     MainActivity.instance.showFastScrollLetter(title);
                 } else {
-                    btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonNormalBg()));
-                    btn.setTextColor(ThemeManager.getTextColorPrimary());
+                    btn.setBackground(MainActivity.instance.createButtonBackground(com.themoon.y1.ThemeManager.getListButtonNormalBg()));
+
+                    // 💡 포커스가 벗어나면 원래 색상으로 복구!
+                    if (v instanceof android.widget.LinearLayout) {
+                        android.widget.LinearLayout row = (android.widget.LinearLayout) v;
+                        if (row.getChildCount() > 1) {
+                            ((android.widget.TextView) row.getChildAt(0)).setTextColor(com.themoon.y1.ThemeManager.getTextColorPrimary());
+                            ((android.widget.TextView) row.getChildAt(1)).setTextColor(com.themoon.y1.ThemeManager.getTextColorPrimary());
+                        }
+                    } else if (v instanceof android.widget.Button) {
+                        ((android.widget.Button) v).setTextColor(com.themoon.y1.ThemeManager.getTextColorPrimary());
+                    }
                 }
             }
         });
-        // 리스트뷰 아이템이 재사용될 때 남아있던 무지개 빛깔 프로그레스 배경 찌꺼기를 깨끗하게 소독합니다.
-        btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonNormalBg()));
     }
 }
