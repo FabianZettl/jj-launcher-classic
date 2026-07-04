@@ -61,8 +61,7 @@ public class SongListAdapter extends BaseAdapter {
             }
         }
 
-        // (이후 아래 쪽에 btn.setOnClickListener 등의 코드가 남아있다면 그대로 두시면 됩니다!)
-        // return btn;
+
         // 🚀 [버그 1의 핵심 해결책] 포커스가 이동할 때 프로그레스 바가 강제로 지워지는 현상을 원천 차단합니다.
         if (MainActivity.instance.isAudiobookLibraryMode) {
             int pos = MainActivity.instance.prefs.getInt("book_pos_" + song.file.getAbsolutePath(), 0);
