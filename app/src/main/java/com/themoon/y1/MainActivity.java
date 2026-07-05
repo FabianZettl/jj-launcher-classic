@@ -4958,7 +4958,14 @@ public class MainActivity extends Activity {
                                 @Override
                                 public void run() {
                                     progressDialog.dismiss();
-                                    installApk(updateFile);
+
+                                    // 🚀 [UI 멈춤 팝업 완벽 차단] 메인 화면 일꾼은 놔주고, 설치는 백그라운드 일꾼에게 조용히 시킵니다!
+                                    new Thread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            installApk(updateFile);
+                                        }
+                                    }).start();
                                 }
                             }, 3000);
                         }
@@ -7097,46 +7104,47 @@ public class MainActivity extends Activity {
     }
     private void installApk(File apkFile) {
         try {
-            // 1. 기존 권한 개방 유지 (설치 관리자 접근용)
-            try {
-                Runtime.getRuntime().exec("chmod 777 " + apkFile.getParentFile().getAbsolutePath());
-                Runtime.getRuntime().exec("chmod 777 " + apkFile.getAbsolutePath());
-            } catch (Exception e) {
-            }
+            // 🚀 [완벽한 해결책: 무음 백그라운드 설치(Silent Install) 통합 엔진]
+            Process process = Runtime.getRuntime().exec("su");
+            java.io.DataOutputStream os = new java.io.DataOutputStream(process.getOutputStream());
 
-            // 🚀 2. [완벽한 해결책: 무음 백그라운드 설치(Silent Install)]
-            try {
-                Process process = Runtime.getRuntime().exec("su");
-                java.io.DataOutputStream os = new java.io.DataOutputStream(process.getOutputStream());
+            // 1. [타이밍 버그 해결] 패키지 매니저가 접근할 수 있게 폴더와 파일의 권한을 엽니다.
+            os.writeBytes("chmod 777 " + apkFile.getParentFile().getAbsolutePath() + "\n");
+            os.writeBytes("chmod 777 " + apkFile.getAbsolutePath() + "\n");
 
-                // 🚀 [핵심 수정] 설치 결과를 기기 내부의 텍스트 파일(y1_update_log.txt)에 저장하도록 꼬리표(> .. 2>&1)를 붙입니다!
-                os.writeBytes("pm install -r " + apkFile.getAbsolutePath() + " > /storage/sdcard0/y1_update_log.txt 2>&1 \n");
+            // 2. 안드로이드 시스템(디스크)이 권한 변경을 완전히 알아차릴 때까지 확실히 동기화(sync)시킵니다!
+            os.writeBytes("sync\n");
 
-                // 💡 패키지 매니저가 충분히 설치를 끝낼 수 있도록 3초의 쿨타임(휴식)을 줍니다.
-                os.writeBytes("sleep 3\n");
+            // 3. 백그라운드 설치 실행 (로그 기록 포함)
+            os.writeBytes("pm install -r " + apkFile.getAbsolutePath() + " > /storage/sdcard0/y1_update_log.txt 2>&1 \n");
 
-                // 2단계: 설치가 완료되면 런처(앱)를 곧바로 다시 실행시켜서 화면으로 복귀!
-                os.writeBytes("am start -n " + getPackageName() + "/.MainActivity\n");
+            // 4. 설치가 끝날 때까지 넉넉하게 3초 대기 (이제 백그라운드 스레드라 화면이 안 멈춥니다!)
+            os.writeBytes("sleep 3\n");
 
-                os.writeBytes("exit\n");
-                os.flush();
-                os.close();
-                process.waitFor();
+            // 5. 설치가 완료되면 런처(앱)를 곧바로 다시 실행시켜서 화면으로 복귀!
+            os.writeBytes("am start -n " + getPackageName() + "/.MainActivity\n");
 
-                return;
-            } catch (Exception e) {
-                // 루트 권한 에러 시 플랜 B로 넘어감
-            }
+            os.writeBytes("exit\n");
+            os.flush();
+            os.close();
 
-            // 3. [플랜 B] 루팅이 안 된 기기일 경우, 기존처럼 수동 설치 화면 띄우기
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            Uri apkUri = Uri.parse("file://" + apkFile.getAbsolutePath());
-            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
+            // 프로세스가 완전히 끝날 때까지 대기
+            process.waitFor();
 
+            return;
         } catch (Exception e) {
-            Toast.makeText(this, t("Install Failed."), Toast.LENGTH_SHORT).show();
+            // 루트 권한 에러 시 플랜 B로 넘어감
+        }
+
+        // 6. [플랜 B] 루팅이 안 된 기기일 경우, 수동 설치 화면 띄우기
+        try {
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+            android.net.Uri apkUri = android.net.Uri.parse("file://" + apkFile.getAbsolutePath());
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, t("Install Failed."), android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 
