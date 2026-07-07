@@ -41,6 +41,7 @@ android {
 dependencies {
     implementation 'com.google.android.exoplayer:exoplayer-core:2.13.3'
     implementation files('libs/extension-opus-release.aar')
+    implementation files('libs/extension-flac-release.aar')
     implementation 'androidx.multidex:multidex:2.0.1'
 }
 // 파일 맨 밑에 추가: 최신 라이브러리 버전 체크 안전장치를 강제로 끄는 코드

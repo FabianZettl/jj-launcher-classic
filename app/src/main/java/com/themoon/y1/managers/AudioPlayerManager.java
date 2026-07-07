@@ -48,12 +48,64 @@ public class AudioPlayerManager {
 
     public void initPlayer(Context context) {
         if (exoPlayer == null) {
-            // 🚀 [수술 2] 우리가 app/libs 에 넣은 정품 Opus 엔진(16비트)을 최우선으로 쓰게 만드는 팩토리 장착!
-            DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(context.getApplicationContext())
-                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
+            com.google.android.exoplayer2.DefaultRenderersFactory renderersFactory = new com.google.android.exoplayer2.DefaultRenderersFactory(context.getApplicationContext()) {
+                @Override
+                protected void buildAudioRenderers(
+                        Context context,
+                        int extensionRendererMode,
+                        com.google.android.exoplayer2.mediacodec.MediaCodecSelector mediaCodecSelector,
+                        boolean enableDecoderFallback,
+                        com.google.android.exoplayer2.audio.AudioSink audioSink,
+                        android.os.Handler eventHandler,
+                        com.google.android.exoplayer2.audio.AudioRendererEventListener eventListener,
+                        java.util.ArrayList<com.google.android.exoplayer2.Renderer> out) {
 
-            // 기존의 빈 껍데기 Builder 대신, 방금 만든 팩토리를 넣어서 조립합니다!
-            exoPlayer = new SimpleExoPlayer.Builder(context.getApplicationContext(), renderersFactory).build();
+                    // 🚀 [해결] 절대 기억을 잃지 않는 '불사신 다운샘플러' 껍데기 제작!
+                    com.google.android.exoplayer2.audio.AudioProcessor immortalSonic = new com.google.android.exoplayer2.audio.AudioProcessor() {
+                        private final com.google.android.exoplayer2.audio.SonicAudioProcessor sonic = new com.google.android.exoplayer2.audio.SonicAudioProcessor();
+
+                        @Override
+                        public com.google.android.exoplayer2.audio.AudioProcessor.AudioFormat configure(com.google.android.exoplayer2.audio.AudioProcessor.AudioFormat inputAudioFormat) throws com.google.android.exoplayer2.audio.AudioProcessor.UnhandledAudioFormatException {
+                            // 💡 곡을 새로 장전할 때마다 무조건 44.1kHz를 강제로 쑤셔 넣습니다!
+                            sonic.setOutputSampleRateHz(44100);
+                            return sonic.configure(inputAudioFormat);
+                        }
+
+                        @Override public boolean isActive() { return sonic.isActive(); }
+                        @Override public void queueInput(java.nio.ByteBuffer inputBuffer) { sonic.queueInput(inputBuffer); }
+                        @Override public void queueEndOfStream() { sonic.queueEndOfStream(); }
+                        @Override public java.nio.ByteBuffer getOutput() { return sonic.getOutput(); }
+                        @Override public boolean isEnded() { return sonic.isEnded(); }
+                        @Override public void flush() { sonic.flush(); }
+
+                        @Override
+                        public void reset() {
+                            sonic.reset();
+                            // 💡 엑소플레이어가 리셋 버튼을 눌러서 기억을 지워버리면, 즉시 44.1kHz를 다시 각인시킵니다!
+                            sonic.setOutputSampleRateHz(44100);
+                        }
+                    };
+
+                    // 2. 불사신 정수기를 파이프라인에 단독으로 투입! (24비트 처리는 엑소가 알아서 해줍니다)
+                    com.google.android.exoplayer2.audio.AudioProcessor[] processors = new com.google.android.exoplayer2.audio.AudioProcessor[]{ immortalSonic };
+
+                    com.google.android.exoplayer2.audio.AudioSink customSink = new com.google.android.exoplayer2.audio.DefaultAudioSink(
+                            com.google.android.exoplayer2.audio.AudioCapabilities.getCapabilities(context),
+                            processors
+                    );
+
+                    super.buildAudioRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback, customSink, eventHandler, eventListener, out);
+                }
+            };
+
+            // C++ 확장 부품 최우선 사용 명령
+            renderersFactory.setExtensionRendererMode(com.google.android.exoplayer2.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
+
+            // 팩토리를 넣어서 조립 완료!
+            exoPlayer = new com.google.android.exoplayer2.SimpleExoPlayer.Builder(context.getApplicationContext(), renderersFactory).build();
+
+            // (이 아래의 리스너 코드들은 기존과 100% 동일하게 유지해 주세요!)
+            // (이 아래 리스너 코드들은 기존과 100% 동일하게 유지해 주세요!)
             exoPlayer.addListener(new Player.EventListener() {
                 @Override
                 public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
@@ -346,7 +398,7 @@ public class AudioPlayerManager {
         main.tvPlayerTimeTotal.setText("00:00");
 
         String ext = track.getName().toLowerCase();
-        isUsingLegacyPlayer = ext.endsWith(".flac");
+        isUsingLegacyPlayer = false;
         boolean isOpus = ext.endsWith(".opus"); // 🚀 OPUS 판별기 부활!
 
         try {
