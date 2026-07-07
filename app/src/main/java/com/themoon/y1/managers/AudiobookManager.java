@@ -72,8 +72,10 @@ public class AudiobookManager {
     private boolean isAudioFile(File f) {
         if (f == null || !f.isFile()) return false;
         String name = f.getName().toLowerCase();
-        return name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".flac") || name.endsWith(".wav");
+        // 🚀 [해결] 좁았던 출입문을 활짝 열고 .opus 를 포함한 모든 음악 확장자를 허용합니다!
+        return name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".flac") || name.endsWith(".wav")
+                || name.endsWith(".ogg") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma")
+                || name.endsWith(".opus");
     }
-
 
 }

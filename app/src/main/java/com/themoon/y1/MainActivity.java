@@ -350,7 +350,7 @@ public class MainActivity extends Activity {
 
     private TextView tvKeyboardSsid, tvKeyboardInput;
     private TextView tvKeyPprev, tvKeyPrev, tvKeyCurrent, tvKeyNext, tvKeyNnext;
-
+    private long lastBtToggleTime = 0;
     private final String[] KEYBOARD_CHARS = {
             "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
             "v", "w", "x", "y", "z",
@@ -759,26 +759,27 @@ public class MainActivity extends Activity {
                 if (state == BluetoothAdapter.STATE_ON) {
                     ivStatusBluetooth.setVisibility(View.VISIBLE);
                     ivStatusBluetooth.setColorFilter(0xFFFFFFFF);
-
-                    // 🚀 [추가] 블루투스가 켜지는 순간, A2DP 엔진을 잊지 않고 미리 세팅합니다!
                     BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
                             new android.bluetooth.BluetoothProfile.ServiceListener() {
                                 @Override
                                 public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                                    if (profile == BluetoothProfile.A2DP)
-                                        globalA2dp = proxy;
+                                    if (profile == BluetoothProfile.A2DP) globalA2dp = proxy;
                                 }
-
                                 @Override
                                 public void onServiceDisconnected(int profile) {
-                                    if (profile == BluetoothProfile.A2DP)
-                                        globalA2dp = null;
+                                    if (profile == BluetoothProfile.A2DP) globalA2dp = null;
                                 }
                             }, BluetoothProfile.A2DP);
-
                 } else {
                     ivStatusBluetooth.setVisibility(View.GONE);
-                    globalA2dp = null; // 🚀 블루투스가 꺼지면 엔진도 같이 초기화
+                    globalA2dp = null;
+                    // 🚀 [방어막 3] 블루투스가 완전히 꺼지면 좀비 타겟도 초기화하여 찌꺼기 연결을 막습니다!
+                    if (state == BluetoothAdapter.STATE_OFF) targetDeviceForAudio = null;
+                }
+
+                // 🚀 [포커스 증발 방어막 4] 켜지는 중/꺼지는 중(TURNING)에는 UI 새로고침을 무시하고, '완전히 ON/OFF' 되었을 때 딱 1번만 갱신합니다!
+                if (currentScreenState == STATE_BLUETOOTH && (state == BluetoothAdapter.STATE_ON || state == BluetoothAdapter.STATE_OFF)) {
+                    startBluetoothScan();
                 }
                 // (이하 기존 코드 유지)
                 // 🚀 [버그 해결 1] 사용자가 메인 셋팅창(깊이 0)에 있을 때만 새로고침 하도록 방어막 전개!
@@ -826,10 +827,11 @@ public class MainActivity extends Activity {
                 int profileState = intent.getIntExtra("android.bluetooth.profile.extra.STATE", -1);
                 BluetoothDevice currentDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
 
-                // 🚀 [순정 이식: 좀비 로직 1] 에어팟이 오디오를 튕겨내면? 0.1초 만에 엔진 재호출!
                 if (profileState == BluetoothProfile.STATE_DISCONNECTED) {
                     Toast.makeText(context, t("Audio Disconnected"), Toast.LENGTH_SHORT).show();
-                    if (targetDeviceForAudio != null && currentDevice != null
+                    // 🚀 [최종 방어막] 블루투스 자체가 꺼져서 끊긴 거라면(isEnabled == false) 절대 재연결 시도를 하지 않습니다!
+                    BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
+                    if (ba != null && ba.isEnabled() && targetDeviceForAudio != null && currentDevice != null
                             && targetDeviceForAudio.getAddress().equals(currentDevice.getAddress())) {
                         connectBluetoothAudio(targetDeviceForAudio);
                     }
@@ -851,6 +853,17 @@ public class MainActivity extends Activity {
                     }
                 }
             } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+
+                // 🚀 [무한 페어링 방어막 1] 페어링이 취소되거나 실패하면(BOND_NONE), 즉시 타겟을 지워서 좀비의 부활을 막습니다!
+                if (state == BluetoothDevice.BOND_NONE) {
+                    BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                    if (targetDeviceForAudio != null && device != null && targetDeviceForAudio.getAddress().equals(device.getAddress())) {
+                        targetDeviceForAudio = null; // 타겟 강제 해제!
+                        Toast.makeText(context, t("Pairing failed or cancelled."), Toast.LENGTH_SHORT).show();
+                    }
+                }
+
                 if (currentScreenState == STATE_BLUETOOTH && !isBtConnectingState) {
                     new Handler().postDelayed(new Runnable() {
                         public void run() {
@@ -858,19 +871,26 @@ public class MainActivity extends Activity {
                         }
                     }, 300);
                 }
-                int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+
                 if (state == BluetoothDevice.BOND_BONDED) {
                     BluetoothDevice bondedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                    // 🚀 [순정 이식: 좀비 로직 2] 페어링이 완료되자마자 지체 없이 엔진 호출!
                     if (bondedDevice != null)
                         connectBluetoothAudio(bondedDevice);
                 }
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 BluetoothDevice disconnectedDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                // 🚀 [순정 이식: 좀비 로직 3] 기기 자체의 통신이 튕기면 즉시 엔진 재호출!
-                if (targetDeviceForAudio != null && disconnectedDevice != null
+                BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
+
+                if (ba != null && ba.isEnabled() && targetDeviceForAudio != null && disconnectedDevice != null
                         && targetDeviceForAudio.getAddress().equals(disconnectedDevice.getAddress())) {
-                    connectBluetoothAudio(targetDeviceForAudio);
+
+                    // 🚀 [무한 페어링 방어막 2] "이미 페어링이 완료된(BONDED)" 기기일 때만 좀비 엔진을 가동합니다!
+                    // 페어링 도중에 튕긴 거라면 재연결을 시도하지 않고 타겟을 깔끔하게 포기합니다.
+                    if (disconnectedDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
+                        connectBluetoothAudio(targetDeviceForAudio);
+                    } else {
+                        targetDeviceForAudio = null; // 찌꺼기 타겟 삭제
+                    }
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 btnScanBt.setText(t("Scan Complete (Retry)"));
@@ -1924,37 +1944,54 @@ public class MainActivity extends Activity {
                 } else if (isAudioFile(f)) {
                     if (blacklist.contains(f.getAbsolutePath())) continue;
 
-
-                    // 🚀 [해결] 에러가 나서 튕기더라도 살아남을 수 있게, 기본값들을 먼저 장전해 둡니다!
-                    String title = f.getName(); // 제목이 없으면 파일 이름으로 대체!
-
-                    // 🚀 [수정 완료] 오디오북 바구니에 담을 때는 '알 수 없는 저자 / 책'으로 이름표를 다르게 부여합니다!
+                    // 🚀 [해결] 기본값 장전 (오디오북/뮤직 분리)
+                    String title = f.getName();
                     boolean isBook = (targetLibrary == audiobookLibrary);
                     String artist = isBook ? t("Unknown Author") : t("Unknown Artist");
                     String album = isBook ? t("Unknown Book") : t("Unknown Album");
-
-                    String year = t("Unknown Year");     // 🚀 번역기 장착!
-                    String genre = t("Unknown Genre");   // 🚀 번역기 장착!
+                    String year = t("Unknown Year");
+                    String genre = t("Unknown Genre");
                     int trackNum = 0;
 
                     try {
-                        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                        java.io.FileInputStream fis = new java.io.FileInputStream(f);
-                        mmr.setDataSource(fis.getFD());
+                        String t = null;
+                        String a = null;
+                        String al = null;
+                        String trackStr = null;
+                        String y = null;
+                        String g = null;
 
-                        String t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                        String a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                        String al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
-                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-                        String y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE); // 💡 KEY_DATE에 연도가 들어있습니다.
-                        String g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
+                        // 🚀 [핵심 추가] Opus 파일은 4.0 스캐너 투입!
+                        if (f.getName().toLowerCase().endsWith(".opus")) {
+                            Object[] opusTags = com.themoon.y1.managers.AudioPlayerManager.getInstance().extractOpusMetadata(f);
+                            if (opusTags[0] != null) t = (String) opusTags[0];
+                            if (opusTags[1] != null) a = (String) opusTags[1];
+                            if (opusTags[2] != null) al = (String) opusTags[2];
+                            if (opusTags[3] != null) y = (String) opusTags[3];
+                            if (opusTags[4] != null) g = (String) opusTags[4];
+                        } else {
+                            // 🚀 MP3/FLAC 등은 안드로이드 순정 부품 사용
+                            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                            java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                            mmr.setDataSource(fis.getFD());
 
-                        // 🚀 태그가 존재할 때만 "Unknown..." 기본값을 실제 데이터로 덮어씌웁니다!
+                            t = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                            a = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                            al = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                            trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
+                            y = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE);
+                            g = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE);
+
+                            fis.close();
+                            mmr.release();
+                        }
+
+                        // 추출된 텍스트 덮어쓰기
                         if (t != null && !t.trim().isEmpty()) title = t;
                         if (a != null && !a.trim().isEmpty()) artist = a;
                         if (al != null && !al.trim().isEmpty()) album = al;
-                        if (y != null && !y.trim().isEmpty()) year = y;     // 🚀 연도 덮어쓰기
-                        if (g != null && !g.trim().isEmpty()) genre = g;    // 🚀 장르 덮어쓰기
+                        if (y != null && !y.trim().isEmpty()) year = y;
+                        if (g != null && !g.trim().isEmpty()) genre = g;
 
                         if (trackStr != null && !trackStr.isEmpty()) {
                             try {
@@ -1962,16 +1999,10 @@ public class MainActivity extends Activity {
                                 else trackNum = Integer.parseInt(trackStr.trim());
                             } catch (Exception e) {}
                         }
+                    } catch (Exception e) {}
 
-                        fis.close();
-                        mmr.release();
-                    } catch (Exception e) {
-                        // 💡 태그가 없거나 스캐너가 실패해도 앱이 터지지 않고 이 구역으로 안전하게 빠져나옵니다.
-                    }
-
-                    // 🚀 [핵심 해결] 안전지대(try-catch 밖)에서 바구니에 담습니다.
-                    // 에러가 났어도 장전해 둔 기본값("Unknown Artist" 등)으로 정상 추가되어 분류됩니다!
-                    targetLibrary.add(new SongItem(f, title, artist, album, year, genre)); // 💡 6개 꽉 채우기 완료!
+                    // 🚀 [안전지대] 에러가 났어도 바구니에 담기!
+                    targetLibrary.add(new SongItem(f, title, artist, album, year, genre));
                     trackNumberMap.put(f.getAbsolutePath(), trackNum);
 
                     scannedAudioFiles++;
@@ -1982,7 +2013,6 @@ public class MainActivity extends Activity {
                             public void run() {
                                 if (pbLoadingProgress != null) pbLoadingProgress.setProgress(progress);
                                 if (tvLoadingProgress != null) {
-                                    // 🚀 [완벽 현지화] 전체 문장을 통째로 번역기로 보낸 뒤, 가변 숫자 3개를 순서대로 주입합니다!
                                     String template = t("Scanning Media: %d%%\n(%d / %d)\nDo not turn off the screen.");
                                     tvLoadingProgress.setText(String.format(java.util.Locale.US, template, progress, scannedAudioFiles, totalAudioFiles));
                                 }
@@ -1993,6 +2023,7 @@ public class MainActivity extends Activity {
             }
         }
     }
+
     // 3. 중앙 스캔 엔진 (두 폴더를 순서대로 스캔합니다)
     private void startMediaLibraryScan() {
         if (isCustomScanning) return;
@@ -2011,7 +2042,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 customLibrary.clear();
-                audiobookLibrary.clear(); // 🚀 오디오북 바구니도 비우기
+                audiobookLibrary.clear(); // 🚀 오디오북 바구니 비우기
                 trackNumberMap.clear();
                 totalAudioFiles = 0;
                 scannedAudioFiles = 0;
@@ -2024,10 +2055,10 @@ public class MainActivity extends Activity {
                 buildCustomLibrary(rootFolder, customLibrary);
                 buildCustomLibrary(audiobookRootFolder, audiobookLibrary);
 
-                // 즐겨찾기 자동 청소기 가동 (뮤직 기준)
+                // 즐겨찾기 자동 청소기
                 java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
                 for (SongItem song : customLibrary) aliveSongs.add(song.file.getAbsolutePath());
-                for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath()); // 💡 오디오북도 포함!
+                for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath());
 
                 boolean isCleanedUp = false;
                 java.util.Iterator<String> favIterator = favoritePaths.iterator();
@@ -2051,7 +2082,6 @@ public class MainActivity extends Activity {
                             else if (currentBrowserMode == BROWSER_ARTISTS) buildVirtualCategories("ARTIST");
                             else if (currentBrowserMode == BROWSER_ALBUMS) buildVirtualCategories("ALBUM");
                             else if (currentBrowserMode == BROWSER_VIRTUAL_SONGS) buildVirtualSongs();
-                                // 🚀 [신규 콜백 등록] 백그라운드에서 곡 스캔이 끝난 순간, 사용자가 커버 플로우 화면을 보고 있다면 앨범을 즉시 실시간으로 그려냅니다!
                             else if (currentBrowserMode == BROWSER_COVER_FLOW) buildCoverFlowUI();
                         }
                     }
@@ -2059,7 +2089,6 @@ public class MainActivity extends Activity {
             }
         }).start();
     }
-    // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
     // 💡 [개조 완료] 화면 전체를 덮는 확실한 로딩 팝업 & 화면 꺼짐 방지 엔진
     private void showLoadingPopup() {
         if (layoutLoadingOverlay != null) {
@@ -3034,12 +3063,23 @@ public class MainActivity extends Activity {
         btnToggle.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                // 🚀 [광클 폭주 방어막 1] 1.5초 이내의 중복 클릭은 완벽하게 씹어버립니다!
+                long now = System.currentTimeMillis();
+                if (now - lastBtToggleTime < 1500) {
+                    Toast.makeText(MainActivity.this, t("Please wait a moment..."), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                lastBtToggleTime = now;
                 clickFeedback();
+
                 if (ba != null) {
-                    if (ba.isEnabled())
+                    if (ba.isEnabled()) {
+                        // 🚀 [무한루프 방어막 2] 의도적으로 끄는 것이므로 즉시 좀비 타겟을 삭제합니다!
+                        targetDeviceForAudio = null;
                         ba.disable();
-                    else
+                    } else {
                         ba.enable();
+                    }
                     ((TextView) btnToggle.getChildAt(1)).setText(t("Wait..."));
                 }
             }
@@ -4995,7 +5035,8 @@ public class MainActivity extends Activity {
             return false;
         String name = f.getName().toLowerCase();
         return name.endsWith(".mp3") || name.endsWith(".flac") || name.endsWith(".wav") || name.endsWith(".ogg")
-                || name.endsWith(".m4a") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma");
+                || name.endsWith(".m4a") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma")
+                || name.endsWith(".opus"); // 🚀 [여기에 .opus 공식 추가!]
     }
 
     private boolean isApkFile(File f) {
