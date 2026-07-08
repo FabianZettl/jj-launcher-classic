@@ -57,7 +57,7 @@ public class EqSliderView extends android.view.View {
 
         // 동그란 손잡이(Thumb)
         thumbPaint.setColor(isAdjusting ? 0xFFFF8800 : (isFocused ? themeColor : 0xFFDDDDDD));
-        canvas.drawCircle(trackX, thumbY, 15f, thumbPaint);
+        canvas.drawCircle(trackX, thumbY, 10f, thumbPaint);
 
         // 손잡이 바로 위에 떠다니는 +dB 텍스트
         textPaint.setColor(0xFFFFFFFF);

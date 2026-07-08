@@ -31,6 +31,11 @@ import java.util.Locale;
 public class AudioPlayerManager {
     private static AudioPlayerManager instance;
     public SimpleExoPlayer exoPlayer;
+    // 🚀 [신규 엔진] 10밴드 하드코어 소프트웨어 DSP를 전역으로 장전합니다!
+    public Y1EqAudioProcessor customEqProcessor = new Y1EqAudioProcessor();
+
+    // 🚀 [신규 엔진 2] 자연스러운 스피커 공간감을 구현할 크로스피드 DSP 장전!
+    public Y1CrossfeedAudioProcessor crossfeedProcessor = new Y1CrossfeedAudioProcessor();
     public MediaPlayer legacyPlayer;
     public boolean isUsingLegacyPlayer = false;
     private java.io.FileInputStream currentFileInputStream;
@@ -60,35 +65,34 @@ public class AudioPlayerManager {
                         com.google.android.exoplayer2.audio.AudioRendererEventListener eventListener,
                         java.util.ArrayList<com.google.android.exoplayer2.Renderer> out) {
 
-                    // 🚀 [해결] 절대 기억을 잃지 않는 '불사신 다운샘플러' 껍데기 제작!
+                    // 🚀 [해결] 24비트 등의 음원이 들어오면 엔진을 알아서 패스하도록 지능형 스위치 장착!
                     com.google.android.exoplayer2.audio.AudioProcessor immortalSonic = new com.google.android.exoplayer2.audio.AudioProcessor() {
                         private final com.google.android.exoplayer2.audio.SonicAudioProcessor sonic = new com.google.android.exoplayer2.audio.SonicAudioProcessor();
+                        private boolean is16Bit = true;
 
                         @Override
                         public com.google.android.exoplayer2.audio.AudioProcessor.AudioFormat configure(com.google.android.exoplayer2.audio.AudioProcessor.AudioFormat inputAudioFormat) throws com.google.android.exoplayer2.audio.AudioProcessor.UnhandledAudioFormatException {
-                            // 💡 곡을 새로 장전할 때마다 무조건 44.1kHz를 강제로 쑤셔 넣습니다!
-                            sonic.setOutputSampleRateHz(44100);
-                            return sonic.configure(inputAudioFormat);
+                            is16Bit = (inputAudioFormat.encoding == com.google.android.exoplayer2.C.ENCODING_PCM_16BIT);
+                            if (is16Bit) {
+                                sonic.setOutputSampleRateHz(44100);
+                                return sonic.configure(inputAudioFormat);
+                            }
+                            // 🚀 [에러 방어] 16비트가 아니면 에러 내지 말고 그대로 배출!
+                            return inputAudioFormat;
                         }
 
-                        @Override public boolean isActive() { return sonic.isActive(); }
-                        @Override public void queueInput(java.nio.ByteBuffer inputBuffer) { sonic.queueInput(inputBuffer); }
-                        @Override public void queueEndOfStream() { sonic.queueEndOfStream(); }
-                        @Override public java.nio.ByteBuffer getOutput() { return sonic.getOutput(); }
-                        @Override public boolean isEnded() { return sonic.isEnded(); }
-                        @Override public void flush() { sonic.flush(); }
+                        // 🚀 [핵심 기술] 16비트가 아닐 때는 isActive를 false로 주어, 엑소플레이어가 이 배관을 알아서 건너뛰게(Bypass) 만듭니다!
+                        @Override public boolean isActive() { return is16Bit ? sonic.isActive() : false; }
 
-                        @Override
-                        public void reset() {
-                            sonic.reset();
-                            // 💡 엑소플레이어가 리셋 버튼을 눌러서 기억을 지워버리면, 즉시 44.1kHz를 다시 각인시킵니다!
-                            sonic.setOutputSampleRateHz(44100);
-                        }
+                        @Override public void queueInput(java.nio.ByteBuffer inputBuffer) { if (is16Bit) sonic.queueInput(inputBuffer); }
+                        @Override public void queueEndOfStream() { if (is16Bit) sonic.queueEndOfStream(); }
+                        @Override public java.nio.ByteBuffer getOutput() { return is16Bit ? sonic.getOutput() : java.nio.ByteBuffer.allocateDirect(0).order(java.nio.ByteOrder.nativeOrder()); }
+                        @Override public boolean isEnded() { return is16Bit ? sonic.isEnded() : true; }
+                        @Override public void flush() { if (is16Bit) sonic.flush(); }
+                        @Override public void reset() { sonic.reset(); sonic.setOutputSampleRateHz(44100); }
                     };
-
-                    // 2. 불사신 정수기를 파이프라인에 단독으로 투입! (24비트 처리는 엑소가 알아서 해줍니다)
-                    com.google.android.exoplayer2.audio.AudioProcessor[] processors = new com.google.android.exoplayer2.audio.AudioProcessor[]{ immortalSonic };
-
+                    // 2. 🚀 [배관 개조 완료] 10밴드 수학 필터(EQ)를 통과한 소리가 불사신 정수기로 들어가도록 직렬 연결합니다!
+                    com.google.android.exoplayer2.audio.AudioProcessor[] processors = new com.google.android.exoplayer2.audio.AudioProcessor[]{ customEqProcessor, crossfeedProcessor, immortalSonic };
                     com.google.android.exoplayer2.audio.AudioSink customSink = new com.google.android.exoplayer2.audio.DefaultAudioSink(
                             com.google.android.exoplayer2.audio.AudioCapabilities.getCapabilities(context),
                             processors
@@ -115,7 +119,11 @@ public class AudioPlayerManager {
                                 @Override
                                 public void run() {
                                     try {
-                                        if (AudioEffectManager.getInstance() != null) AudioEffectManager.getInstance().applyAudioEffects();
+                                        // 🚀 [버그 완벽 수리] 곡이 바뀌어 오디오 잭이 갱신될 때마다 EQ 설정도 잊지 않고 다시 주입합니다!
+                                        if (AudioEffectManager.getInstance() != null) {
+                                            AudioEffectManager.getInstance().applyAudioEffects();
+                                            AudioEffectManager.getInstance().applyEqProfile(); // 💡 이 한 줄이 추가되어야 소리가 바뀝니다!!
+                                        }
                                         MainActivity.instance.setupVisualizer();
 
                                         int duration = getDuration();
@@ -300,10 +308,10 @@ public class AudioPlayerManager {
 
     private boolean isAudioFile(String name) {
         name = name.toLowerCase();
-        // 🚀 [수술 1] 정품 엔진이 읽을 수 있도록 .opus, .ape, .wma 출입문을 활짝 엽니다!
+        // 🚀 [.m4b 오디오북 공식 지원 도어 오픈!]
         return name.endsWith(".mp3") || name.endsWith(".flac") || name.endsWith(".wav") || name.endsWith(".ogg")
                 || name.endsWith(".m4a") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma")
-                || name.endsWith(".opus");
+                || name.endsWith(".opus") || name.endsWith(".m4b");
     }
 
     public void playOrPauseMusic() {
@@ -442,9 +450,9 @@ public class AudioPlayerManager {
             // ==========================================
             // 🖼️ [2구역] 화면 UI 덮어쓰기 (무조건 실행됨!)
             // ==========================================
-            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "").replace(".opus", "");
+            // 🚀 [.m4b 꼬리표 제거 추가!]
+            String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".wav", "").replace(".m4a", "").replace(".opus", "").replace(".m4b", "");
             File coverFile = new File("/storage/sdcard0/Y1_Covers", safeFileName + ".jpg");
-
             if (main.prefs.contains("meta_title_" + track.getAbsolutePath())) {
                 t = main.prefs.getString("meta_title_" + track.getAbsolutePath(), t);
                 a = main.prefs.getString("meta_artist_" + track.getAbsolutePath(), a);

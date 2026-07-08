@@ -46,6 +46,9 @@ public class AudioEffectManager {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         ensureAudioEffectsReady();
+
+        com.themoon.y1.managers.AudioPlayerManager.getInstance().crossfeedProcessor.setIntensity(main.currentCrossfeedStep);
+
         if (main.bassBoost == null || main.virtualizer == null) return;
         try {
             short bassStrength = (short) (main.currentBassBoostStep * 333);
@@ -58,29 +61,53 @@ public class AudioEffectManager {
         } catch (Exception e) {}
     }
 
-    // 🎧 3. 순정 프리셋 및 커스텀 fader 밴드 데이터 로드
+    // 🎧 3. 순정 프리셋 및 커스텀 fader 밴드 데이터 로드 (하이브리드 스위칭 엔진 적용)
     public void applyEqProfile() {
         MainActivity main = MainActivity.instance;
         if (main == null) return;
         ensureAudioEffectsReady();
-        if (main.equalizer == null) return;
+
         try {
-            if (main.currentEqProfile.startsWith("preset_")) {
-                int pIdx = Integer.parseInt(main.currentEqProfile.replace("preset_", ""));
-                if (pIdx < main.equalizer.getNumberOfPresets()) {
-                    main.equalizer.usePreset((short) pIdx);
-                    main.currentEqPresetIndex = pIdx;
-                    main.prefs.edit().putInt("eq_preset", main.currentEqPresetIndex).putString("eq_profile_id", main.currentEqProfile).commit();
-                }
-            } else {
+            // 🔴 [소프트웨어 10밴드 모드]
+            if (main.isSoftwareEqEnabled) {
+                if (main.equalizer != null) main.equalizer.setEnabled(false); // 순정 하드웨어 전원 차단!
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().customEqProcessor.setEnabled(true); // 소프트웨어 DSP 가동!
+
+                // 소프트웨어 모드에선 프리셋(Rock, Pop 등)을 무시하고 무조건 커스텀(10밴드) 설정만 읽어옵니다.
                 String name = main.currentEqProfile.replace("custom_", "");
-                short bands = main.equalizer.getNumberOfBands();
-                for (short i = 0; i < bands; i++) {
+                if (main.currentEqProfile.startsWith("preset_")) name = "Flat"; // 프리셋일 땐 임시로 0점(Flat) 세팅
+
+                for (short i = 0; i < 10; i++) {
                     int level = main.prefs.getInt("eq_custom_" + name + "_band_" + i, 0);
                     main.customBandLevels[i] = level;
-                    main.equalizer.setBandLevel(i, (short) level);
+                    // 🚀 (-1500 ~ 1500) 값을 (-15.0f ~ 15.0f) 실수형으로 변환하여 수학 공식에 즉시 주입!
+                    com.themoon.y1.managers.AudioPlayerManager.getInstance().customEqProcessor.setBandLevel(i, level / 100.0f);
                 }
                 main.prefs.edit().putString("eq_profile_id", main.currentEqProfile).commit();
+            }
+            // 🟢 [하드웨어 5밴드 모드]
+            else {
+                com.themoon.y1.managers.AudioPlayerManager.getInstance().customEqProcessor.setEnabled(false); // 소프트웨어 DSP 차단!
+                if (main.equalizer == null) return;
+                main.equalizer.setEnabled(true); // 하드웨어 칩셋 가동!
+
+                if (main.currentEqProfile.startsWith("preset_")) {
+                    int pIdx = Integer.parseInt(main.currentEqProfile.replace("preset_", ""));
+                    if (pIdx < main.equalizer.getNumberOfPresets()) {
+                        main.equalizer.usePreset((short) pIdx);
+                        main.currentEqPresetIndex = pIdx;
+                        main.prefs.edit().putInt("eq_preset", main.currentEqPresetIndex).putString("eq_profile_id", main.currentEqProfile).commit();
+                    }
+                } else {
+                    String name = main.currentEqProfile.replace("custom_", "");
+                    short bands = main.equalizer.getNumberOfBands();
+                    for (short i = 0; i < bands; i++) {
+                        int level = main.prefs.getInt("eq_custom_" + name + "_band_" + i, 0);
+                        main.customBandLevels[i] = level;
+                        main.equalizer.setBandLevel(i, (short) level);
+                    }
+                    main.prefs.edit().putString("eq_profile_id", main.currentEqProfile).commit();
+                }
             }
         } catch (Exception e) {}
     }

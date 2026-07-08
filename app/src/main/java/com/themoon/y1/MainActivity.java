@@ -191,11 +191,17 @@ public class MainActivity extends Activity {
     public android.media.audiofx.Virtualizer virtualizer;
     public int currentBassBoostStep = 0;    // 0: OFF, 1: Weak, 2: Normal, 3: Strong
     public int currentVirtualizerStep = 0;  // 0: OFF, 1: Weak, 2: Normal, 3: Strong
+
+    public int currentCrossfeedStep = 0;  // 0: OFF, 1: Weak, 2: Normal, 3: Strong
     public String currentEqProfile = "preset_0"; // preset_0~X 혹은 custom_이름
     public int[] customBandLevels = new int[32]; // 커스텀 튜닝값 캐시 뱅크
     private int settingsSubMode = 0;         // 0: 일반, 1: 날짜시간, 2: 이퀄라이저 라우팅
     public int currentAudioSessionId = -1;  // 🚀 [추가] 현재 사용 중인 오디오 회선 번호를 기억할 변수
     private int currentAdjustingBand = -1;   // 🚀 [추가] 그래픽 EQ에서 현재 볼륨 조절 중인 주파수를 기억합니다.
+
+    // 🚀 [신규 추가] 소프트웨어 10밴드 EQ 모드 전원 스위치 (기본값은 무조건 안전한 false!)
+    public boolean isSoftwareEqEnabled = false;
+
     private boolean isWidgetFocusImageOn = false; // 🚀 [추가] 포커스 위젯 전원 변수
     // 💡 [추가] 홈 스크린 위젯 관련 변수들
     private boolean isWidgetClockOn = false;
@@ -1271,6 +1277,8 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
         }
 
+        try { isSoftwareEqEnabled = prefs.getBoolean("software_eq_enabled", false); } catch (Exception e) {}
+
         // 💡 2. 설정값들을 각각 독립적으로 불러오기 (어떤 상황에서도 절대 스킵되지 않습니다!)
         try {
             isShuffleMode = prefs.getBoolean("shuffle", false);
@@ -1339,6 +1347,7 @@ public class MainActivity extends Activity {
         currentEqProfile = prefs.getString("eq_profile_id", "preset_" + currentEqPresetIndex);
         currentBassBoostStep = prefs.getInt("bass_boost_step", 0);
         currentVirtualizerStep = prefs.getInt("virtualizer_step", 0);
+        currentCrossfeedStep = prefs.getInt("crossfeed_step", 0);
         if (currentEqPresetIndex >= eqPresetNames.size())
             currentEqPresetIndex = 0;
 
@@ -5122,9 +5131,10 @@ public class MainActivity extends Activity {
         if (f == null || !f.isFile())
             return false;
         String name = f.getName().toLowerCase();
+        // 🚀 [.m4b 오디오북 공식 지원 도어 오픈!]
         return name.endsWith(".mp3") || name.endsWith(".flac") || name.endsWith(".wav") || name.endsWith(".ogg")
                 || name.endsWith(".m4a") || name.endsWith(".aac") || name.endsWith(".ape") || name.endsWith(".wma")
-                || name.endsWith(".opus"); // 🚀 [여기에 .opus 공식 추가!]
+                || name.endsWith(".opus") || name.endsWith(".m4b");
     }
 
     private boolean isApkFile(File f) {
@@ -7369,7 +7379,7 @@ public class MainActivity extends Activity {
         }
     }
     // 🚀 [가사 엔진] .lrc 파일을 찾아 시간과 텍스트를 분리해 메모리에 담습니다.
-    // 🚀 [가사 엔진] .lrc 파일을 우선 찾고, 없으면 MP3 내부 가사를 직접 뜯어옵니다!
+    // 🚀 [가사 엔진 업그레이드] .lrc, USLT는 물론 m4b 챕터까지 싹 다 긁어오는 만능 파서!
     private void loadLyrics(File audioFile) {
         currentLyrics.clear();
         lyricTimestamps.clear();
@@ -7379,12 +7389,26 @@ public class MainActivity extends Activity {
 
         if (audioFile == null) return;
         String path = audioFile.getAbsolutePath();
+
+        // 🚀 [신규 장착 1] 파일 확장자가 .m4b 오디오북이라면 자체 챕터 해독기를 돌립니다!
+        if (path.toLowerCase().endsWith(".m4b")) {
+            com.themoon.y1.managers.M4bChapterParser.ChapterResult chResult = com.themoon.y1.managers.M4bChapterParser.extractChapters(audioFile);
+
+            // 챕터를 성공적으로 빼왔다면, 가사 대신 챕터 시간표를 가사 엔진에 쑤셔 넣습니다!
+            if (!chResult.chaptersMap.isEmpty()) {
+                currentLyrics.putAll(chResult.chaptersMap);
+                lyricTimestamps.addAll(chResult.timestamps);
+                return; // 💡 챕터를 세팅했으니 가사 찾기는 여기서 조기 종료!
+            }
+        }
+
+        // (이 아래부터는 기존 코드와 100% 동일하게 유지하시면 됩니다!)
         int dotIdx = path.lastIndexOf(".");
         if (dotIdx > 0) {
             String lrcPath = path.substring(0, dotIdx) + ".lrc";
             File lrcFile = new File(lrcPath);
 
-            // 1. 외부 .lrc 파일이 있는지 확인 (노래방 모드 최우선)
+            // 1. 외부 .lrc 파일이 있는지 확인
             if (lrcFile.exists()) {
                 try {
                     java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(lrcFile), "UTF-8"));
@@ -7414,11 +7438,10 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 2. 외부 .lrc 파일이 없다면 MP3 내부에 박혀있는 가사(USLT)를 자체 채굴해 옵니다!
+        // 2. 외부 .lrc 파일이 없다면 MP3 내부에 박혀있는 가사(USLT) 자체 채굴!
         plainLyrics = extractEmbeddedLyrics(audioFile);
         if (plainLyrics != null && !plainLyrics.isEmpty()) {
             if (tvLyrics != null) {
-                // 내장 가사는 시간에 맞춰 움직일 수 없으므로, 흰색(기본) 색상으로 한 번에 쭉 띄워줍니다.
                 tvLyrics.setText(plainLyrics);
             }
         }
@@ -8542,9 +8565,26 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
             if (!isSeekPerformed) {
                 if (activePlayer == 1) {
-                    tuneToNextSavedRadioChannel(true); // 🚀 깔끔하게 엔진만 호출!
+                    tuneToNextSavedRadioChannel(true);
                 } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                    // 🚀 [챕터 스킵 닌자 가동] 챕터/가사 창이 열려있다면 곡 넘기기 대신 '다음 챕터 워프' 가동!
+                    if (isVisualizerShowing && lyricTimestamps != null && !lyricTimestamps.isEmpty()) {
+                        int currentPos = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentPosition();
+                        int targetMs = -1;
+                        for (int i = 0; i < lyricTimestamps.size(); i++) {
+                            if (lyricTimestamps.get(i) > currentPos + 2000) { // 2초 여유 마진
+                                targetMs = lyricTimestamps.get(i);
+                                break;
+                            }
+                        }
+                        if (targetMs != -1) {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(targetMs - currentPos);
+                        } else {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack(); // 마지막 챕터면 다음 곡으로
+                        }
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().nextTrack();
+                    }
                 }
                 clickFeedback();
             }
@@ -8554,9 +8594,29 @@ public class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
             if (!isSeekPerformed) {
                 if (activePlayer == 1) {
-                    tuneToNextSavedRadioChannel(false); // 🚀 깔끔하게 엔진만 호출!
+                    tuneToNextSavedRadioChannel(false);
                 } else {
-                    com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    // 🚀 [챕터 스킵 닌자 가동] 챕터/가사 창이 열려있다면 '이전 챕터 워프' 가동!
+                    if (isVisualizerShowing && lyricTimestamps != null && !lyricTimestamps.isEmpty()) {
+                        int currentPos = com.themoon.y1.managers.AudioPlayerManager.getInstance().getCurrentPosition();
+                        int targetMs = -1;
+                        for (int i = lyricTimestamps.size() - 1; i >= 0; i--) {
+                            if (lyricTimestamps.get(i) < currentPos - 3000) { // 3초 이전 챕터로 (현재 챕터 재시작 방지)
+                                targetMs = lyricTimestamps.get(i);
+                                break;
+                            }
+                        }
+                        // 첫 번째 챕터보다 앞이면 맨 처음(0초)으로 점프
+                        if (targetMs == -1 && !lyricTimestamps.isEmpty()) targetMs = lyricTimestamps.get(0);
+
+                        if (targetMs != -1) {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(targetMs - currentPos);
+                        } else {
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                        }
+                    } else {
+                        com.themoon.y1.managers.AudioPlayerManager.getInstance().prevTrack();
+                    }
                 }
                 clickFeedback();
             }
@@ -9055,7 +9115,10 @@ public class MainActivity extends Activity {
 
                         File coverFolder = new File("/storage/sdcard0/Y1_Covers");
                         if (!coverFolder.exists()) coverFolder.mkdirs();
-                        String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "");
+
+                        // 🚀 [.m4b 꼬리표 제거 추가!] 검색 시 파일명 기반으로 저장할 때 확장자를 깔끔하게 날립니다.
+                        String safeFileName = track.getName().replace(".mp3", "").replace(".flac", "").replace(".m4a", "").replace(".m4b", "");
+
                         final File coverFile = new File(coverFolder, safeFileName + ".jpg");
                         java.io.FileOutputStream fos = new java.io.FileOutputStream(coverFile);
                         coverBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fos);
@@ -9306,7 +9369,47 @@ public class MainActivity extends Activity {
         com.themoon.y1.managers.AudioEffectManager.getInstance().loadAndSyncExternalEqProfiles();
         com.themoon.y1.managers.AudioEffectManager.getInstance().ensureAudioEffectsReady();
         containerSettingsItems.removeAllViews();
+// 🚀 [신규 장착] 하드웨어/소프트웨어 EQ 엔진 전환 스위치!
+        String eqEngineMode = isSoftwareEqEnabled ? "Software (10-Band)" : "Hardware (5-Band)";
+        final LinearLayout btnEqEngine = createSettingRow("EQ Engine Mode", t(eqEngineMode));
 
+        btnEqEngine.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clickFeedback();
+
+                if (!isSoftwareEqEnabled) {
+                    // 🔴 하드웨어 -> 소프트웨어(10밴드)로 넘어갈 때: 살벌한 전문가용 경고 팝업!
+                    new AlertDialog.Builder(MainActivity.this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                            .setTitle("⚠️ " + t("Expert Mode: 10-Band EQ"))
+                            .setMessage(t("This will bypass the native hardware audio chip and use a custom 10-band software DSP.\n\nWarning: This consumes significantly more CPU and battery, and may cause audio stuttering on older devices.\n\nDo you want to proceed?"))
+                            .setPositiveButton(t("Proceed"), new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int which) {
+                                    isSoftwareEqEnabled = true;
+                                    prefs.edit().putBoolean("software_eq_enabled", true).commit();
+
+                                    // 💡 나중에 추가할 소프트웨어 필터 엔진 재시동 명령이 들어갈 자리입니다.
+
+                                    buildEqualizerSettingsUI(); // 화면 즉시 새로고침!
+                                    Toast.makeText(MainActivity.this, t("Software 10-Band EQ Enabled."), Toast.LENGTH_SHORT).show();
+                                }
+                            })
+                            .setNegativeButton(t("Cancel"), null)
+                            .show();
+                } else {
+                    // (소프트웨어 모드 ON 팝업의 Proceed 클릭 시)
+                    isSoftwareEqEnabled = true;
+                    prefs.edit().putBoolean("software_eq_enabled", true).commit();
+
+                    // 🚀 [추가] 즉시 엔진 스위칭 가동!
+                    com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
+
+                    buildEqualizerSettingsUI();
+                    Toast.makeText(MainActivity.this, t("Hardware 5-Band EQ Enabled."), Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        containerSettingsItems.addView(btnEqEngine);
         // 🚀 2. 서브 설정창 EQ 표시
         String activeName = "Normal";
         if (currentEqProfile.startsWith("preset_")) {
@@ -9349,7 +9452,20 @@ public class MainActivity extends Activity {
             prefs.edit().putInt("virtualizer_step", currentVirtualizerStep).commit();
         });
         containerSettingsItems.addView(rowVirt);
+// 4. 🚀 [신규 장착] 크로스피드 (헤드파이 룸 어쿠스틱 공간감)
+        final LinearLayout rowCrossfeed = createSettingRow("Crossfeed", t(steps[currentCrossfeedStep]));
+        rowCrossfeed.setOnClickListener(v -> {
+            clickFeedback();
+            currentCrossfeedStep = (currentCrossfeedStep + 1) % 4;
+            ((TextView) rowCrossfeed.getChildAt(1)).setText(t(steps[currentCrossfeedStep])); // 🚀 텍스트 즉시 변경!
 
+            // 엔진에 즉시 새로운 강도(Intensity) 주입!
+            com.themoon.y1.managers.AudioPlayerManager.getInstance().crossfeedProcessor.setIntensity(currentCrossfeedStep);
+
+            // 금고에 영구 저장
+            prefs.edit().putInt("crossfeed_step", currentCrossfeedStep).commit();
+        });
+        containerSettingsItems.addView(rowCrossfeed);
         // 4. 커스텀 금고 관리 패널
         createCategoryHeader("━ "+t("PROFILE MANAGEMENT")+" ━");
         if (currentEqProfile.startsWith("custom_")) {
@@ -9429,49 +9545,80 @@ public class MainActivity extends Activity {
         currentSettingsDepth = 2;
         containerSettingsItems.removeAllViews();
 
-        // 🚀 3. 리스트를 쫙 뽑아낼 때 번역
+        // 🚀 [포커스 유지용 금고] 현재 켜져 있는(방금 누른) EQ 버튼을 기억할 공간입니다!
+        final android.view.View[] targetFocusView = {null};
+
+        // 🚀 1. 시스템 프리셋 리스트 출력
         if (equalizer != null) {
             for (int i = 0; i < eqPresetNames.size(); i++) {
                 final int pIdx = i;
                 final String pId = "preset_" + pIdx;
                 String prefix = currentEqProfile.equals(pId) ? "✔ " : "   ";
-                // 🚀 시스템에서 가져온 영어 이름을 가로채서 번역기에 쏙 넣습니다!
+
                 Button btn = createListButton(prefix + t(eqPresetNames.get(i)));
-                if (currentEqProfile.equals(pId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = pId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
+
+                if (currentEqProfile.equals(pId)) {
+                    btn.setTextColor(0xFF00FF00);
+                    btn.setTypeface(null, android.graphics.Typeface.BOLD);
+                    targetFocusView[0] = btn; // 🎯 [핵심] 현재 활성화된 버튼 객체를 금고에 저장!
+                }
+
+                btn.setOnClickListener(v -> {
+                    clickFeedback();
+                    currentEqProfile = pId;
+                    com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
+                    buildEqProfileSelectorUI(); // 화면 새로고침
+                });
                 containerSettingsItems.addView(btn);
             }
         }
 
         createCategoryHeader("━ "+t("SELECT USER PROFILES")+" ━");
+
+        // 🚀 2. 커스텀 프로필 리스트 출력
         String listStr = prefs.getString("custom_eq_list", "");
         if (!listStr.trim().isEmpty()) {
             for (final String prof : listStr.split(",")) {
                 if (prof.trim().isEmpty()) continue;
                 final String cId = "custom_" + prof;
                 String prefix = currentEqProfile.equals(cId) ? "✔ " : "   ";
+
                 Button btn = createListButton(prefix + prof);
-                if (currentEqProfile.equals(cId)) { btn.setTextColor(0xFF00FF00); btn.setTypeface(null, android.graphics.Typeface.BOLD); }
-                btn.setOnClickListener(v -> { clickFeedback(); currentEqProfile = cId; com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); buildEqualizerSettingsUI(); });
+
+                if (currentEqProfile.equals(cId)) {
+                    btn.setTextColor(0xFF00FF00);
+                    btn.setTypeface(null, android.graphics.Typeface.BOLD);
+                    targetFocusView[0] = btn; // 🎯 [핵심] 현재 커스텀 EQ 버튼 객체도 금고에 저장!
+                }
+
+                btn.setOnClickListener(v -> {
+                    clickFeedback();
+                    currentEqProfile = cId;
+                    com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
+                    buildEqProfileSelectorUI(); // 화면 새로고침
+                });
                 containerSettingsItems.addView(btn);
             }
         } else {
-            TextView tvEmpty = new TextView(this); tvEmpty.setText("   " + t("No custom profiles found."));
-            tvEmpty.setTextColor(0xFF888888); tvEmpty.setPadding(20, 10, 20, 10);
+            TextView tvEmpty = new TextView(this);
+            tvEmpty.setText("   " + t("No custom profiles found."));
+            tvEmpty.setTextColor(0xFF888888);
+            tvEmpty.setPadding(20, 10, 20, 10);
             containerSettingsItems.addView(tvEmpty);
         }
 
-        // 🚀 [포커스 버그 해결] 화면이 모두 렌더링 된 직후(50ms 딜레이)에 포커스를 명확히 강제 할당합니다!
+        // 🚀 3. [포커스 지능형 록온] 화면이 다 그려진 0.05초 뒤에, 금고에 넣어둔 그 버튼으로 포커스를 발사합니다!
         containerSettingsItems.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (containerSettingsItems.getChildCount() > 0) {
-                    containerSettingsItems.getChildAt(0).requestFocus();
+                if (targetFocusView[0] != null) {
+                    targetFocusView[0].requestFocus(); // 🎯 누른 자리 그대로 유지!
+                } else if (containerSettingsItems.getChildCount() > 0) {
+                    containerSettingsItems.getChildAt(0).requestFocus(); // (에러 방지용 최상단 록온)
                 }
             }
         }, 50);
     }
-
     // =========================================================================
     // 🚀 [완벽 수정] 1픽셀의 오차도 없고 포커스 가두리가 해결된 그래픽 EQ 스튜디오
     // =========================================================================
@@ -9484,100 +9631,125 @@ public class MainActivity extends Activity {
         createCategoryHeader("━ "+t("GRAPHIC EQUALIZER")+" ━");
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText(t("Editing: ") + currentEqProfile.replace("custom_", "") + " (User)");
+        tvTitle.setText(t("Editing: ") + currentEqProfile.replace("custom_", ""));
         tvTitle.setTextColor(0xFFFF8800);
         tvTitle.setGravity(android.view.Gravity.CENTER);
         tvTitle.setPadding(0, 10, 0, 20);
         containerSettingsItems.addView(tvTitle);
 
-        final android.widget.RelativeLayout eqContainer = new android.widget.RelativeLayout(this);
-        eqContainer.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int)(280 * getResources().getDisplayMetrics().density)));
+        // 🚀 [수정 1] 가로 스크롤을 유지하되, 안쪽 내용물이 화면 폭에 딱 맞게 강제 확장되도록 허용(fillViewport)합니다.
+        android.widget.HorizontalScrollView hsv = new android.widget.HorizontalScrollView(this);
+        hsv.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int)(280 * getResources().getDisplayMetrics().density)));
+        hsv.setHorizontalScrollBarEnabled(false);
+        hsv.setFillViewport(true);
+
+        // 🚀 [수정 2] RelativeLayout을 버리고, 가로로 차곡차곡 쌓는 LinearLayout으로 엔진을 교체합니다!
+        final android.widget.LinearLayout eqContainer = new android.widget.LinearLayout(this);
+        eqContainer.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        eqContainer.setLayoutParams(new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         eqContainer.setGravity(android.view.Gravity.CENTER);
 
-        if (equalizer != null) {
-            final short bands = equalizer.getNumberOfBands();
-            short[] range = equalizer.getBandLevelRange();
-            int prevId = -1;
+        final short bands;
+        final short[] range;
+        final int[] centerFreqs;
 
+        if (isSoftwareEqEnabled) {
+            bands = 10;
+            range = new short[] { -1500, 1500 };
+            centerFreqs = new int[] { 31000, 62000, 125000, 250000, 500000, 1000000, 2000000, 4000000, 8000000, 16000000 };
+        } else {
+            bands = (equalizer != null) ? equalizer.getNumberOfBands() : 5;
+            range = (equalizer != null) ? equalizer.getBandLevelRange() : new short[] { -1500, 1500 };
+            centerFreqs = new int[bands];
             for (short i = 0; i < bands; i++) {
-                final short bandIdx = i;
-                int freq = equalizer.getCenterFreq(bandIdx) / 1000;
-                int currentLevel = customBandLevels[bandIdx];
+                centerFreqs[i] = (equalizer != null) ? equalizer.getCenterFreq(i) : 0;
+            }
+        }
 
-                final LinearLayout bandLayout = new LinearLayout(this);
-                bandLayout.setOrientation(LinearLayout.VERTICAL);
-                bandLayout.setFocusable(true);
-                bandLayout.setGravity(android.view.Gravity.CENTER);
-                bandLayout.setId(8000 + i); // 8000, 8001, 8002... 고유 ID 부여
+        for (short i = 0; i < bands; i++) {
+            final short bandIdx = i;
+            int freq = centerFreqs[i] / 1000;
+            int currentLevel = customBandLevels[bandIdx];
 
-                // 🚀 [핵심 기술 1] 시스템의 무작위 추락을 막기 위해 휠 조작 시 이동할 이웃 노드를 강제로 지정합니다!
-                int nextFocusId = (i == bands - 1) ? 8500 : (8000 + i + 1); // 맨 끝이면 닫기 버튼(8500)으로
-                int prevFocusId = (i == 0) ? 8500 : (8000 + i - 1);         // 맨 처음이면 닫기 버튼(8500)으로
+            final LinearLayout bandLayout = new LinearLayout(this);
+            bandLayout.setOrientation(LinearLayout.VERTICAL);
+            bandLayout.setFocusable(true);
+            bandLayout.setGravity(android.view.Gravity.CENTER);
+            bandLayout.setId(8000 + i);
 
-                bandLayout.setNextFocusDownId(nextFocusId); // 휠 아래로(오른쪽 이동)
-                bandLayout.setNextFocusUpId(prevFocusId);   // 휠 위로(왼쪽 이동)
+            int nextFocusId = (i == bands - 1) ? 8500 : (8000 + i + 1);
+            int prevFocusId = (i == 0) ? 8500 : (8000 + i - 1);
 
-                android.widget.RelativeLayout.LayoutParams lp = new android.widget.RelativeLayout.LayoutParams((int)(60 * getResources().getDisplayMetrics().density), android.view.ViewGroup.LayoutParams.MATCH_PARENT);
-                if (prevId != -1) {
-                    lp.addRule(android.widget.RelativeLayout.RIGHT_OF, prevId);
-                    lp.leftMargin = (int)(5 * getResources().getDisplayMetrics().density);
-                }
-                bandLayout.setLayoutParams(lp);
-                prevId = 8000 + i;
+            bandLayout.setNextFocusDownId(nextFocusId);
+            bandLayout.setNextFocusUpId(prevFocusId);
 
-                final EqSliderView slider = new EqSliderView(this);
-                slider.setRange(range[0], range[1]);
-                slider.setLevel(currentLevel);
-                slider.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
+            // 🚀 [수정 3] 핵심 기술! 폭(Width)을 '0'으로 주고 가중치(Weight=1.0f)를 주어 10개가 100% 꽉 맞물리게 자동 압축합니다!
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
 
-                TextView tvFreq = new TextView(this);
-                tvFreq.setText(freq >= 1000 ? (freq/1000) + "k" : freq + "");
-                tvFreq.setTextColor(0xFFFFFFFF);
-                tvFreq.setTextSize(12f);
-                tvFreq.setGravity(android.view.Gravity.CENTER);
-                tvFreq.setPadding(0, 0, 0, 10);
+            // 10밴드일 때는 간격을 2dp로 줄여서 오밀조밀하게, 5밴드일 때는 5dp로 넉넉하게 설정
+            int marginDp = isSoftwareEqEnabled ? 2 : 5;
+            if (i > 0) lp.leftMargin = (int)(marginDp * getResources().getDisplayMetrics().density);
 
-                bandLayout.addView(slider);
-                bandLayout.addView(tvFreq);
+            bandLayout.setLayoutParams(lp);
 
-                bandLayout.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
-                    @Override
-                    public void onFocusChange(android.view.View v, boolean hasFocus) {
-                        if (hasFocus) {
-                            bandLayout.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg() & 0x66FFFFFF));
-                        } else {
-                            bandLayout.setBackgroundColor(0x00000000);
-                            if (currentAdjustingBand == bandIdx) {
-                                currentAdjustingBand = -1;
-                                slider.setAdjusting(false);
-                            }
-                        }
-                        slider.setFocused(hasFocus);
-                    }
-                });
+            final EqSliderView slider = new EqSliderView(this);
+            slider.setRange(range[0], range[1]);
+            slider.setLevel(currentLevel);
+            slider.setLayoutParams(new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
 
-                bandLayout.setOnClickListener(new android.view.View.OnClickListener() {
-                    @Override
-                    public void onClick(android.view.View v) {
-                        clickFeedback();
+            TextView tvFreq = new TextView(this);
+            tvFreq.setText(freq >= 1000 ? (freq/1000) + "k" : freq + "");
+            tvFreq.setTextColor(0xFFFFFFFF);
+            // 🚀 [수정 4] 글씨 크기를 시원하게 14.5f로 키우고, 굵은 글씨(BOLD)를 먹여 가독성을 극대화합니다!
+            tvFreq.setTextSize(14.5f);
+            tvFreq.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvFreq.setGravity(android.view.Gravity.CENTER);
+            tvFreq.setPadding(0, 0, 0, 10);
+
+            bandLayout.addView(slider);
+            bandLayout.addView(tvFreq);
+
+            bandLayout.setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(android.view.View v, boolean hasFocus) {
+                    if (hasFocus) {
+                        bandLayout.setBackground(createButtonBackground(ThemeManager.getListButtonFocusedBg() & 0x66FFFFFF));
+                    } else {
+                        bandLayout.setBackgroundColor(0x00000000);
                         if (currentAdjustingBand == bandIdx) {
                             currentAdjustingBand = -1;
                             slider.setAdjusting(false);
-                        } else {
-                            if (currentAdjustingBand != -1) {
-                                LinearLayout prevBand = (LinearLayout) eqContainer.findViewById(8000 + currentAdjustingBand);
-                                if (prevBand != null) ((EqSliderView) prevBand.getChildAt(0)).setAdjusting(false);
-                            }
-                            currentAdjustingBand = bandIdx;
-                            slider.setAdjusting(true);
                         }
                     }
-                });
+                    slider.setFocused(hasFocus);
+                }
+            });
 
-                bandLayout.setOnKeyListener(new android.view.View.OnKeyListener() {
-                    @Override
-                    public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
-                        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && currentAdjustingBand == bandIdx) {
+            bandLayout.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override
+                public void onClick(android.view.View v) {
+                    clickFeedback();
+                    if (currentAdjustingBand == bandIdx) {
+                        currentAdjustingBand = -1;
+                        slider.setAdjusting(false);
+                    } else {
+                        if (currentAdjustingBand != -1) {
+                            LinearLayout prevBand = (LinearLayout) eqContainer.findViewById(8000 + currentAdjustingBand);
+                            if (prevBand != null) ((EqSliderView) prevBand.getChildAt(0)).setAdjusting(false);
+                        }
+                        currentAdjustingBand = bandIdx;
+                        slider.setAdjusting(true);
+                    }
+                }
+            });
+
+            bandLayout.setOnKeyListener(new android.view.View.OnKeyListener() {
+                @Override
+                public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
+                    if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+
+                        // 1. 🟢 이미 밴드를 클릭해서 '볼륨(dB) 조절 모드'일 때의 휠 동작
+                        if (currentAdjustingBand == bandIdx) {
                             if (keyCode == 21 || keyCode == 22) {
                                 int step = 100;
                                 int level = customBandLevels[bandIdx];
@@ -9588,23 +9760,50 @@ public class MainActivity extends Activity {
                                 if (level < range[0]) level = range[0];
 
                                 customBandLevels[bandIdx] = level;
-                                try { equalizer.setBandLevel(bandIdx, (short) level); } catch(Exception e){}
                                 slider.setLevel(level);
                                 com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(currentEqProfile.replace("custom_", ""));
+
+                                // 🚀 [핵심 연결부] 하드웨어 모드와 소프트웨어 모드를 구별해서 명령을 쏩니다!
+                                if (!isSoftwareEqEnabled && equalizer != null) {
+                                    try { equalizer.setBandLevel(bandIdx, (short) level); } catch(Exception e){}
+                                } else if (isSoftwareEqEnabled) {
+                                    // 🚀 소프트웨어 10밴드 수학 공식 필터에 실시간 파라미터 주입!
+                                    com.themoon.y1.managers.AudioPlayerManager.getInstance().customEqProcessor.setBandLevel(bandIdx, level / 100.0f);
+                                }
+
                                 clickFeedback();
                                 return true;
                             }
                         }
-                        return false;
+                        // 2. 🚀 [포커스 탈출 엔진 가동] 볼륨 조절 모드가 아닐 때, 양 끝단에서 휠을 돌리면 '저장 버튼(8500번)'으로 점프!
+                        else {
+                            if (keyCode == 21 && bandIdx == 0) { // 첫 번째 밴드에서 위로(왼쪽) 돌렸을 때 탈출!
+                                android.view.View btnSave = containerSettingsItems.findViewById(8500);
+                                if (btnSave != null) btnSave.requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                            if (keyCode == 22 && bandIdx == bands - 1) { // 마지막 밴드에서 아래로(오른쪽) 돌렸을 때 탈출!
+                                android.view.View btnSave = containerSettingsItems.findViewById(8500);
+                                if (btnSave != null) btnSave.requestFocus();
+                                clickFeedback();
+                                return true;
+                            }
+                        }
                     }
-                });
-                eqContainer.addView(bandLayout);
-            }
-        }
+                    return false;
+                }
+            });
+            eqContainer.addView(bandLayout);
+        } // 💡 10밴드 그리기 for문 끝!
 
-        containerSettingsItems.addView(eqContainer);
+        // 🚀 1. 슬라이더가 다 담긴 상자(eqContainer)를 가로 스크롤(hsv)에 넣고 메인 화면에 붙입니다.
+        hsv.addView(eqContainer);
+        containerSettingsItems.addView(hsv);
 
-        // 🚀 [UX 개조 1] "완료/닫기"라는 애매한 표현 대신 믹싱 콘솔 본연의 "저장하기" 명칭으로 교체!
+        // =========================================================
+        // 🚀 2. [완벽 복구] 잃어버린 '저장(Save Profile)' 버튼 부활 및 부착!
+        // =========================================================
         Button btnClose = createListButton(t("Save Profile"));
         btnClose.setId(8500);
 
@@ -9613,44 +9812,47 @@ public class MainActivity extends Activity {
             public void onClick(android.view.View v) {
                 clickFeedback();
                 String name = currentEqProfile.replace("custom_", "");
-                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(name); // 1. 내부 로컬 금고 저장
-                com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(name); // 2. 🚀 [핵심] 유저 공유용 외부 개별 파일(.json) 실시간 내보내기 실행!
-                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile(); // 3. 오디오 칩셋에 실시간 음압 가해 즉시 적용
+                com.themoon.y1.managers.AudioEffectManager.getInstance().saveCustomEqProfile(name);
+                com.themoon.y1.managers.AudioEffectManager.getInstance().exportEqProfileToFile(name);
+                com.themoon.y1.managers.AudioEffectManager.getInstance().applyEqProfile();
 
                 android.widget.Toast.makeText(MainActivity.this, t("File saved successfully!"), android.widget.Toast.LENGTH_SHORT).show();
-                buildEqualizerSettingsUI(); // 4. 이전 페이지로 복귀하면 최상단 라우터에 방금 지정한 이름이 즉시 동기화되어 표기됩니다!
+                buildEqualizerSettingsUI(); // 이전 설정 메뉴로 돌아가기
             }
         });
 
+        // 🚀 3. 휠을 위아래로 돌렸을 때 첫 번째/마지막 밴드로 스르륵 점프하는 조향 장치
         btnClose.setOnKeyListener(new android.view.View.OnKeyListener() {
             @Override
             public boolean onKey(android.view.View v, int keyCode, android.view.KeyEvent event) {
                 if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                    if (equalizer != null) {
-                        int totalBands = equalizer.getNumberOfBands();
-                        if (keyCode == 21) {
-                            android.view.View lastBand = eqContainer.findViewById(8000 + totalBands - 1);
-                            if (lastBand != null) lastBand.requestFocus();
-                            clickFeedback();
-                            return true;
-                        }
-                        if (keyCode == 22) {
-                            android.view.View firstBand = eqContainer.findViewById(8000);
-                            if (firstBand != null) firstBand.requestFocus();
-                            clickFeedback();
-                            return true;
-                        }
+                    // 현재 활성화된 밴드 개수(5 or 10)를 파악
+                    int targetBands = isSoftwareEqEnabled ? 10 : ((equalizer != null) ? equalizer.getNumberOfBands() : 5);
+
+                    if (keyCode == 21) { // 휠 위로(UP)
+                        android.view.View lastBand = eqContainer.findViewById(8000 + targetBands - 1);
+                        if (lastBand != null) lastBand.requestFocus();
+                        clickFeedback();
+                        return true;
+                    }
+                    if (keyCode == 22) { // 휠 아래로(DOWN)
+                        android.view.View firstBand = eqContainer.findViewById(8000);
+                        if (firstBand != null) firstBand.requestFocus();
+                        clickFeedback();
+                        return true;
                     }
                 }
                 return false;
             }
         });
+
+        // 🚀 4. 완성된 저장 버튼을 슬라이더 영역(hsv) 바로 아래에 철컥! 부착합니다.
         containerSettingsItems.addView(btnClose);
 
+        // 🚀 5. 렌더링 직후 첫 번째 슬라이더로 포커스 강제 록온!
         containerSettingsItems.postDelayed(new Runnable() {
             @Override
             public void run() {
-                // 🚀 [UX 개조 2] 가장 상단 대신 첫 번째 믹싱 fader(8000번 노드)로 포커스를 자석처럼 즉시 꽂아 넣어 휠 조작을 대기시킵니다!
                 android.view.View firstBand = eqContainer.findViewById(8000);
                 if (firstBand != null) {
                     firstBand.requestFocus();
