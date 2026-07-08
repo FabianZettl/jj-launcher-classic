@@ -122,6 +122,10 @@ public class AudioPlayerManager {
                                         int s = (duration / 1000) % 60;
                                         int m = (duration / (1000 * 60)) % 60;
                                         MainActivity.instance.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                                        // 🚀 [추가!] 곡 장전이 끝나서 정확한 duration이 나왔으므로, 이 시점에 비트레이트 캡슐을 다시 업데이트합니다!
+                                        if (!MainActivity.instance.currentPlaylist.isEmpty()) {
+                                            MainActivity.instance.updateAudioQualityInfo(MainActivity.instance.currentPlaylist.get(MainActivity.instance.currentIndex));
+                                        }
                                     } catch (Exception e) {}
                                 }
                             });
@@ -399,7 +403,8 @@ public class AudioPlayerManager {
 
         String ext = track.getName().toLowerCase();
         isUsingLegacyPlayer = false;
-        boolean isOpus = ext.endsWith(".opus"); // 🚀 OPUS 판별기 부활!
+        boolean isOpus = ext.endsWith(".opus");
+        boolean isFlac = ext.endsWith(".flac"); // 🚀 FLAC 판별기 신규 추가!
 
         try {
             String t = null;
@@ -409,8 +414,19 @@ public class AudioPlayerManager {
             // ==========================================
             // 🛡️ [1구역] 메타데이터 추출 (안전 구역 분리)
             // ==========================================
-            if (!isOpus) {
-                // 🚀 MP3, FLAC 등은 뻗을 일 없는 '안드로이드 순정 부품' 전담!
+            if (isOpus) {
+                Object[] opusTags = extractOpusMetadata(track);
+                if (opusTags[0] != null) t = (String) opusTags[0];
+                if (opusTags[1] != null) a = (String) opusTags[1];
+                if (opusTags[5] != null) main.lastAlbumArtBytes = (byte[]) opusTags[5];
+            } else if (isFlac) {
+                Object[] flacTags = extractFlacMetadata(track);
+                if (flacTags[0] != null) t = (String) flacTags[0];
+                if (flacTags[1] != null) a = (String) flacTags[1];
+                // 🚨 배열 방 번호를 2에서 5로 변경!
+                if (flacTags[5] != null) main.lastAlbumArtBytes = (byte[]) flacTags[5];
+            } else {
+                // 🚀 MP3, WAV 등 버틸 수 있는 파일만 순정 부품 사용
                 try {
                     android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
                     java.io.FileInputStream fisMmr = new java.io.FileInputStream(track);
@@ -421,12 +437,6 @@ public class AudioPlayerManager {
                     fisMmr.close();
                     mmr.release();
                 } catch (Throwable e) {}
-            } else {
-                // 🚀 [특수 구역] 4.0 통합 스캐너 출동!
-                Object[] opusTags = extractOpusMetadata(track);
-                if (opusTags[0] != null) t = (String) opusTags[0];
-                if (opusTags[1] != null) a = (String) opusTags[1];
-                if (opusTags[5] != null) main.lastAlbumArtBytes = (byte[]) opusTags[5]; // 🎯 앨범아트 연동!
             }
 
             // ==========================================
@@ -449,7 +459,6 @@ public class AudioPlayerManager {
             if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
             else main.tvPlayerArtist.setText("Unknown Artist");
 
-            // (이 아래의 동기식 렌더링 코드 유지)    // 🚀 (이 아래 if (main.lastAlbumArtBytes != null) UI 렌더링 코드는 기존과 완벽히 동일!)
 
             // 🚀 동기식 렌더링으로 번쩍거림 없이 100% 매끄럽게 넘어갑니다.
             if (main.lastAlbumArtBytes != null && main.lastAlbumArtBytes.length > 0) {
@@ -479,16 +488,24 @@ public class AudioPlayerManager {
             } else if (coverFile.exists()) {
                 main.applyCachedCoverArt(coverFile.getAbsolutePath());
             } else {
-                main.ivAlbumArt.setImageResource(R.drawable.default_album);
-                main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
-                main.ivPlayerBgBlur.setImageResource(0);
-                main.updateMainMenuBackground();
-                main.refreshNowPlayingPreview();
+                // 🚀 [신규 장착!] (3순위) 파일 안에 사진은 없지만, 같은 폴더에 'cover.jpg'가 있을 때!
+                File folderCover = main.findFolderCover(track.getParentFile());
 
-                boolean isAutoFetchEnabled = main.prefs.getBoolean("auto_fetch", true);
-                if (isAutoFetchEnabled) {
-                    String searchQuery = hasValidTags ? (a + " " + t) : safeFileName.replace("-", " ").replace("_", " ");
-                    main.fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
+                if (folderCover != null) {
+                    main.applyCachedCoverArt(folderCover.getAbsolutePath()); // 폴더 이미지를 메인 화면에 예쁘게 적용!
+                } else {
+                    // (4순위) 다 없으면 최후의 수단으로 '기본 테마 이미지'를 띄우고 인터넷에 다운로드 명령을 내립니다!
+                    main.ivAlbumArt.setImageResource(R.drawable.default_album);
+                    main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
+                    main.ivPlayerBgBlur.setImageResource(0);
+                    main.updateMainMenuBackground();
+                    main.refreshNowPlayingPreview();
+
+                    boolean isAutoFetchEnabled = main.prefs.getBoolean("auto_fetch", true);
+                    if (isAutoFetchEnabled) {
+                        String searchQuery = hasValidTags ? (a + " " + t) : safeFileName.replace("-", " ").replace("_", " ");
+                        main.fetchTrackInfoFromInternet(track, searchQuery, hasValidTags, t, a);
+                    }
                 }
             }
         } catch (Throwable t) {}
@@ -743,4 +760,68 @@ public class AudioPlayerManager {
         } catch (Exception e) {}
         return tags;
     }
+    // =======================================================
+    // 🚀 [자체 제작 6.0] FLAC 6기통 만능 채굴기 (앨범, 연도, 장르 완벽 지원)
+    // =======================================================
+    public Object[] extractFlacMetadata(File file) {
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[])
+        Object[] tags = new Object[]{null, null, null, null, null, null};
+        try {
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
+            byte[] header = new byte[4];
+            raf.readFully(header);
+
+            if (header[0] != 'f' || header[1] != 'L' || header[2] != 'a' || header[3] != 'C') {
+                raf.close(); return tags;
+            }
+
+            boolean isLast = false;
+            while (!isLast) {
+                int blockHeader = raf.readUnsignedByte();
+                isLast = (blockHeader & 0x80) != 0;
+                int blockType = blockHeader & 0x7F;
+                int length = (raf.readUnsignedByte() << 16) | (raf.readUnsignedByte() << 8) | raf.readUnsignedByte();
+
+                if (blockType == 4) { // 🚀 텍스트 정보 추출
+                    byte[] commentData = new byte[length];
+                    raf.readFully(commentData);
+                    try {
+                        int p = 0;
+                        int vendorLen = (commentData[p]&0xFF) | ((commentData[p+1]&0xFF)<<8) | ((commentData[p+2]&0xFF)<<16) | ((commentData[p+3]&0xFF)<<24);
+                        p += 4 + vendorLen;
+                        int listLen = (commentData[p]&0xFF) | ((commentData[p+1]&0xFF)<<8) | ((commentData[p+2]&0xFF)<<16) | ((commentData[p+3]&0xFF)<<24);
+                        p += 4;
+                        for (int i = 0; i < listLen && p < commentData.length - 4; i++) {
+                            int strLen = (commentData[p]&0xFF) | ((commentData[p+1]&0xFF)<<8) | ((commentData[p+2]&0xFF)<<16) | ((commentData[p+3]&0xFF)<<24);
+                            p += 4;
+                            String comment = new String(commentData, p, strLen, "UTF-8");
+                            p += strLen;
+                            String upper = comment.toUpperCase();
+
+                            // 🚀 5대 텍스트 수집 완료!
+                            if (upper.startsWith("TITLE=")) tags[0] = comment.substring(6);
+                            else if (upper.startsWith("ARTIST=")) tags[1] = comment.substring(7);
+                            else if (upper.startsWith("ALBUM=")) tags[2] = comment.substring(6);
+                            else if (upper.startsWith("DATE=") || upper.startsWith("YEAR=")) tags[3] = comment.substring(comment.indexOf("=") + 1);
+                            else if (upper.startsWith("GENRE=")) tags[4] = comment.substring(6);
+                        }
+                    } catch (Exception e) {}
+                } else if (blockType == 6) { // 🚀 사진 추출
+                    int picType = raf.readInt();
+                    int mimeLen = raf.readInt(); raf.skipBytes(mimeLen);
+                    int descLen = raf.readInt(); raf.skipBytes(descLen);
+                    raf.skipBytes(16);
+                    int picDataLen = raf.readInt();
+                    byte[] picData = new byte[picDataLen];
+                    raf.readFully(picData);
+                    tags[5] = picData; // 🎯 사진 데이터는 이제 [5]번 방에 담깁니다!
+                } else {
+                    raf.skipBytes(length);
+                }
+            }
+            raf.close();
+        } catch (Exception e) {}
+        return tags;
+    }
+
 }

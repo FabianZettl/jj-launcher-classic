@@ -1932,6 +1932,65 @@ public class MainActivity extends Activity {
             }
         }
     }
+    // 🚀 [자체 제작 1] 확장자를 보고 음질 계급(서열)을 매기는 판독기
+    private int getAudioQualityScore(File f) {
+        String ext = f.getName().toLowerCase();
+        if (ext.endsWith(".flac")) return 6; // 황제
+        if (ext.endsWith(".wav")) return 5;
+        if (ext.endsWith(".ape") || ext.endsWith(".alac")) return 4;
+        if (ext.endsWith(".opus")) return 3;
+        if (ext.endsWith(".ogg")) return 2;
+        if (ext.endsWith(".m4a") || ext.endsWith(".aac")) return 1;
+        return 0; // MP3, WMA 등 평민
+    }
+
+    // 🚀 [자체 제작 2] 중복 곡을 걸러내고 최고 음질 1개만 남기는 '입구컷 필터'
+    private void filterDuplicateSongs(List<SongItem> library) {
+        java.util.HashMap<String, SongItem> bestSongs = new java.util.HashMap<>();
+
+        for (SongItem song : library) {
+            // 💡 [암호키 생성] "가수 이름 + 노래 제목" (대소문자 무시, 공백 제거로 정확도 1000% 향상!)
+            String key = (song.artist + "_" + song.title).toLowerCase().replaceAll("\\s", "");
+
+            if (bestSongs.containsKey(key)) {
+                SongItem existing = bestSongs.get(key);
+                int newScore = getAudioQualityScore(song.file);
+                int oldScore = getAudioQualityScore(existing.file);
+
+                // 새로 들어온 곡의 음질 계급이 더 높다면? 기존 곡을 쓰레기통에 버리고 왕좌 차지!
+                if (newScore > oldScore) {
+                    bestSongs.put(key, song);
+                }
+                // (음질이 같거나 낮으면 아무것도 안 하고 조용히 무시함 = 중복 제거)
+            } else {
+                bestSongs.put(key, song); // 처음 보는 곡이면 무조건 프리패스 통과!
+            }
+        }
+
+        // 도서관 바구니를 깨끗하게 비우고, 왕좌를 차지한 최고 음질 알맹이들만 다시 채워 넣습니다!
+        library.clear();
+        library.addAll(bestSongs.values());
+    }
+    // =======================================================
+    // 🚀 [자체 제작 3] 대소문자 무시! 폴더 내 'cover' 이미지 자동 탐색기
+    // =======================================================
+    public File findFolderCover(File folder) {
+        if (folder == null || !folder.exists()) return null;
+
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                // 대소문자 구분을 없애기 위해 소문자로 강제 변환 후 검사!
+                String name = f.getName().toLowerCase();
+
+                // 이름이 'cover.' 으로 시작하고, 이미지 확장자(.jpg, .jpeg, .png)로 끝나는 파일인지 확인
+                if (name.startsWith("cover.") && (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))) {
+                    return f; // 🎯 발견 즉시 해당 파일 리턴!
+                }
+            }
+        }
+        return null; // 못 찾으면 null 리턴
+    }
 
     // 2. 태그 추출 및 바구니 담기 (타겟 바구니를 지정해 줍니다)
     private void buildCustomLibrary(File folder, List<SongItem> targetLibrary) {
@@ -1968,6 +2027,14 @@ public class MainActivity extends Activity {
                             if (opusTags[2] != null) al = (String) opusTags[2];
                             if (opusTags[3] != null) y = (String) opusTags[3];
                             if (opusTags[4] != null) g = (String) opusTags[4];
+                        } else if (f.getName().toLowerCase().endsWith(".flac")) {
+                            // 🚀 [신규 엔진 장착!] FLAC도 무조건 만능 채굴기로 완벽하게 뜯어냅니다!
+                            Object[] flacTags = com.themoon.y1.managers.AudioPlayerManager.getInstance().extractFlacMetadata(f);
+                            if (flacTags[0] != null) t = (String) flacTags[0];
+                            if (flacTags[1] != null) a = (String) flacTags[1];
+                            if (flacTags[2] != null) al = (String) flacTags[2];
+                            if (flacTags[3] != null) y = (String) flacTags[3];
+                            if (flacTags[4] != null) g = (String) flacTags[4];
                         } else {
                             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
                             java.io.FileInputStream fis = new java.io.FileInputStream(f);
@@ -2072,7 +2139,11 @@ public class MainActivity extends Activity {
                 buildCustomLibrary(rootFolder, customLibrary);
                 buildCustomLibrary(audiobookRootFolder, audiobookLibrary);
 
-                // 즐겨찾기 자동 청소기
+                // 🚀 [신규 엔진 장착] 중복 폭탄 해체! 최고 음질 1개만 남기고 다 분쇄합니다!
+                filterDuplicateSongs(customLibrary);
+                filterDuplicateSongs(audiobookLibrary);
+
+                // 즐겨찾기 자동 청소기 (이 아래는 기존 코드와 동일합니다!)
                 java.util.HashSet<String> aliveSongs = new java.util.HashSet<>();
                 for (SongItem song : customLibrary) aliveSongs.add(song.file.getAbsolutePath());
                 for (SongItem book : audiobookLibrary) aliveSongs.add(book.file.getAbsolutePath());
@@ -5728,9 +5799,16 @@ public class MainActivity extends Activity {
                         int dot = songName.lastIndexOf(".");
                         if (dot > 0) songName = songName.substring(0, dot);
 
+                        // 1순위: Y1_Covers 전용 폴더 검색
                         File fallbackFile = new File("/storage/sdcard0/Y1_Covers", songName + ".jpg");
                         if (fallbackFile.exists()) {
                             bmp = BitmapFactory.decodeFile(fallbackFile.getAbsolutePath());
+                        } else {
+                            // 🚀 [신규 장착!] 2순위: 혹시 같은 폴더 안에 cover.jpg 가 있는지 탐색기 가동!
+                            File folderCover = findFolderCover(item.file.getParentFile());
+                            if (folderCover != null) {
+                                bmp = BitmapFactory.decodeFile(folderCover.getAbsolutePath());
+                            }
                         }
                     } catch (Exception e) {}
                 }
@@ -5739,14 +5817,15 @@ public class MainActivity extends Activity {
                     try {
                         byte[] embeddedArt = null;
 
-                        // 🚀 [해결] 파일이 Opus라면 무조건 우리가 만든 4.0 통합 스캐너를 투입합니다!
                         if (path.toLowerCase().endsWith(".opus")) {
                             Object[] opusTags = com.themoon.y1.managers.AudioPlayerManager.getInstance().extractOpusMetadata(new File(path));
-                            if (opusTags[5] != null) {
-                                embeddedArt = (byte[]) opusTags[5]; // 5번이 앨범 아트 바이트 배열입니다.
-                            }
+                            if (opusTags[5] != null) embeddedArt = (byte[]) opusTags[5];
+                        } else if (path.toLowerCase().endsWith(".flac")) {
+                            Object[] flacTags = com.themoon.y1.managers.AudioPlayerManager.getInstance().extractFlacMetadata(new File(path));
+                            // 🚨 배열 방 번호를 2에서 5로 변경!
+                            if (flacTags[5] != null) embeddedArt = (byte[]) flacTags[5];
                         } else {
-                            // 🚀 MP3나 FLAC은 기존처럼 안드로이드 순정 부품 사용
+                            // MP3, WAV 등 순정 부품 사용
                             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
                             mmr.setDataSource(path);
                             embeddedArt = mmr.getEmbeddedPicture();
@@ -10033,14 +10112,12 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    // 🚀 [신규 엔진] 파일 확장자와 메타데이터를 뜯어내어 무손실 여부와 비트레이트(kbps)를 추출합니다.
-    private void updateAudioQualityInfo(File audioFile) {
+    public void updateAudioQualityInfo(File audioFile) {
         if (layoutAudioQualityContainer == null || audioFile == null || !audioFile.exists()) {
             if (layoutAudioQualityContainer != null) layoutAudioQualityContainer.setVisibility(View.GONE);
             return;
         }
 
-        // 1. 파일 확장자로 포맷 및 무손실(Lossless) 판별
         String ext = "";
         String name = audioFile.getName().toLowerCase();
         int dotIdx = name.lastIndexOf(".");
@@ -10050,37 +10127,40 @@ public class MainActivity extends Activity {
         String formatTag = isLossless ? "LOSSLESS" : "LOSSY";
         if (ext.equals("WAV")) formatTag = "UNCOMPRESSED";
 
-        // 2. 비트레이트(kbps) 추출 시도
         String bitrateStr = "";
+
+        // 🚀 순정 부품으로 MP3 등의 비트레이트와 곡 길이를 1차로 빼옵니다.
+        long durationMs = 0;
         try {
             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
             mmr.setDataSource(audioFile.getAbsolutePath());
             String br = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
-            if (br != null && !br.isEmpty()) {
-                int bps = Integer.parseInt(br);
-                bitrateStr = (bps / 1000) + " kbps";
-            }
+            if (br != null && !br.isEmpty()) bitrateStr = (Integer.parseInt(br) / 1000) + " kbps";
+
+            String dur = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (dur != null && !dur.isEmpty()) durationMs = Long.parseLong(dur);
             mmr.release();
         } catch (Exception e) {}
 
-        // ⭕ [아래 코드로 덮어쓰기]
-        com.themoon.y1.managers.AudioPlayerManager am = com.themoon.y1.managers.AudioPlayerManager.getInstance();
-        if (bitrateStr.isEmpty() && am.getDuration() > 0) {
-            try {
-                int durationMs = am.getDuration();
-                if (durationMs > 0) {
-                    long fileSize = audioFile.length();
-                    int kbps = (int) ((fileSize * 8000) / durationMs);
-                    bitrateStr = kbps + " kbps";
-                }
-            } catch (Exception e) {}
+        // 🚀 순정 부품이 기절해서 비트레이트를 못 가져온 경우 (고음질 FLAC, OPUS 등)
+        if (bitrateStr.isEmpty() || bitrateStr.equals("0 kbps")) {
+            // 혹시 순정 부품이 길이(duration)마저 못 가져왔다면 ExoPlayer에게 길이를 물어봅니다!
+            if (durationMs <= 0) {
+                durationMs = com.themoon.y1.managers.AudioPlayerManager.getInstance().getDuration();
+            }
+
+            // 물리적인 파일 용량과 시간으로 '절대 속일 수 없는 평균 비트레이트' 역산!
+            if (durationMs > 0) {
+                long fileSize = audioFile.length();
+                int kbps = (int) ((fileSize * 8) / durationMs); // (바이트 * 8) / 밀리초 = kbps
+                bitrateStr = kbps + " kbps";
+            }
         }
 
-        // 4. 🚀 각각 한 줄씩 깔끔하게 세로 목록으로 주입
         tvQualityExt.setText(ext);
         tvQualityFormat.setText(formatTag);
 
-        if (!bitrateStr.isEmpty()) {
+        if (!bitrateStr.isEmpty() && !bitrateStr.equals("0 kbps")) {
             tvQualityBitrate.setText(bitrateStr);
             tvQualityBitrate.setVisibility(View.VISIBLE);
         } else {
