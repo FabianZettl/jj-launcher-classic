@@ -364,7 +364,7 @@ public class MainActivity extends Activity {
     private int lastRadioFocusIndex = 1;
     // (볼륨 전용 변수와 복잡한 포커스 인덱스는 이제 필요 없으므로 과감히 삭제!)
     private boolean isCustomScanning = false;
-    public java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
+    public static java.util.HashMap<String, Integer> trackNumberMap = new java.util.HashMap<>();
     private int currentScreenState = STATE_MENU;
     // 💡 자체 날짜/시간 설정용 임시 변수
     private int dtYear = 2026, dtMonth = 1, dtDay = 1, dtHour = 12, dtMinute = 0;
@@ -1538,7 +1538,7 @@ public class MainActivity extends Activity {
         hzIndexScroll = new android.widget.HorizontalScrollView(this);
         hzIndexScroll.setHorizontalScrollBarEnabled(false);
         hzIndexScroll.setVisibility(View.GONE);
-        hzIndexScroll.setBackgroundColor(0xBB000000); // 반투명 검정 배경
+        hzIndexScroll.setBackgroundColor(0x44000000); // 반투명 검정 배경
 
         layoutIndexContainer = new LinearLayout(this);
         layoutIndexContainer.setOrientation(LinearLayout.HORIZONTAL);
@@ -2196,7 +2196,7 @@ public class MainActivity extends Activity {
                 String name = f.getName().toLowerCase();
 
                 // 이름이 'cover.' 으로 시작하고, 이미지 확장자(.jpg, .jpeg, .png)로 끝나는 파일인지 확인
-                if (name.startsWith("cover.")
+                if ((name.startsWith("cover.") || name.startsWith("folder."))
                         && (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))) {
                     return f; // 🎯 발견 즉시 해당 파일 리턴!
                 }
@@ -12069,7 +12069,7 @@ public class MainActivity extends Activity {
         rootLayout.addView(tvTitle);
 
         TextView tvMsg = new TextView(this);
-        tvMsg.setText(t("Do you want to permanently delete this playlist?\n(Audio files will NOT be deleted.)"));
+        tvMsg.setText(t("Do you want to permanently delete this playlist?"));
         tvMsg.setTextColor(ThemeManager.getTextColorSecondary());
         tvMsg.setTextSize(14f);
         tvMsg.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
@@ -12429,7 +12429,7 @@ public class MainActivity extends Activity {
 
         // 설명 메시지
         TextView tvMsg = new TextView(this);
-        tvMsg.setText(t("Do you want to remove this track from the playlist?\n(The original file will NOT be deleted.)"));
+        tvMsg.setText(t("Do you want to remove this track from the playlist?"));
         tvMsg.setTextColor(ThemeManager.getTextColorSecondary());
         tvMsg.setTextSize(14f);
         tvMsg.setTypeface(ThemeManager.getCustomFont(), Typeface.NORMAL);
