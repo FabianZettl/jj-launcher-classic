@@ -50,16 +50,49 @@ Everything below was added/changed on top of JJ Launcher; anything not listed he
 1. **Prerequisite:** your Innioasis Y1 must already be running **JJ Launcher**, installed via the [Innioasis Updater](https://www.innioasis.com/pages/download). This fork replaces the JJ Launcher app itself — it does not replace the device firmware.
 2. Enable USB debugging on the device and connect it to your PC (see JJ Launcher's own instructions if you haven't done this before).
 3. Download the latest APK from this repo's [Releases](../../releases) page.
-4. Install it over your existing JJ Launcher install:
+4. **Remove the existing JJ Launcher app first** (see [Replacing the stock JJ Launcher app](#replacing-the-stock-jj-launcher-app) below — you can't just `adb install -r` over it).
+5. Install the fork:
    ```bash
-   adb install -r JJLauncherClassic-<version>.apk
+   adb install JJLauncherClassic-<version>.apk
    ```
-5. (Optional, only if Bluetooth pairing ever asks for a permission you can't grant from the UI):
+6. (Optional, only if Bluetooth pairing ever asks for a permission you can't grant from the UI):
    ```bash
    adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
    ```
 
 To enable Last.fm scrobbling, open **Settings → Last.fm** on the device and log in through the browser-based flow (the device shows a URL/QR you open on your phone or PC). To use a custom theme other than the bundled iPod Classic one, see JJ Launcher's original theme documentation.
+
+### Replacing the stock JJ Launcher app
+
+Both this fork and the stock JJ Launcher use the same package name (`com.themoon.y1`), but this fork's release APKs are currently **debug-signed** (see [Building it yourself](#building-it-yourself) — there's no shared release keystore yet). Android refuses to install an APK over an existing app if the signing certificate doesn't match, so a plain `adb install -r` will fail with:
+
+```
+Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: ... signatures do not match]
+```
+or on older Android versions:
+```
+INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES
+```
+
+**Fix — uninstall the existing app before installing this one:**
+
+```bash
+adb uninstall com.themoon.y1
+```
+
+If JJ Launcher was baked into the firmware image as a system app, a plain `adb uninstall` may report `Failure` or silently do nothing. In that case, remove it for the current user instead:
+
+```bash
+adb shell pm uninstall --user 0 com.themoon.y1
+```
+
+Then install this fork as usual:
+
+```bash
+adb install JJLauncherClassic-<version>.apk
+```
+
+**What you keep, what you lose:** uninstalling only clears the app's private settings (app-internal preferences like toggles and any saved Last.fm session — you'll need to log in again). Your **music library**, **themes** (`/storage/sdcard0/Y1_Themes`), and the **`.scrobbler.log`** all live on the SD card, outside the app's private storage, so they're untouched and picked up again automatically on first launch.
 
 ## Building it yourself
 
