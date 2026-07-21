@@ -12,6 +12,9 @@ public class SongItem {
     public String year;
     public String genre;
 
+    // 🚀 [신규 추가] "Artists" 탭 그룹핑용 앨범 아티스트 (ALBUMARTIST 태그, 없으면 artist로 대체)
+    public String albumArtist;
+
     // 💡 기존 코드 호환성을 위한 기본 생성자 (M3U 등에서 오류가 나지 않게 방어해 줍니다)
     public SongItem(File file, String title, String artist, String album) {
         this.file = file;
@@ -20,6 +23,7 @@ public class SongItem {
         this.album = album;
         this.year = "Unknown Year";
         this.genre = "Unknown Genre";
+        this.albumArtist = artist;
     }
 
     // 🚀 [신규 엔진] 연도와 장르까지 꽉 채워서 담아주는 진화된 생성자 추가!
@@ -31,5 +35,17 @@ public class SongItem {
         // 값이 비어있으면(null) 자동으로 'Unknown' 꼬리표를 달아줍니다.
         this.year = (year != null && !year.trim().isEmpty()) ? year : "Unknown Year";
         this.genre = (genre != null && !genre.trim().isEmpty()) ? genre : "Unknown Genre";
+        this.albumArtist = artist;
+    }
+
+    // 🚀 [신규 추가] ALBUMARTIST 태그까지 담는 완전판 생성자
+    public SongItem(File file, String title, String artist, String album, String year, String genre, String albumArtist) {
+        this.file = file;
+        this.title = title;
+        this.artist = artist;
+        this.album = album;
+        this.year = (year != null && !year.trim().isEmpty()) ? year : "Unknown Year";
+        this.genre = (genre != null && !genre.trim().isEmpty()) ? genre : "Unknown Genre";
+        this.albumArtist = (albumArtist != null && !albumArtist.trim().isEmpty()) ? albumArtist : artist;
     }
 }

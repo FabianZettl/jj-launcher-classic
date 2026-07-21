@@ -3,8 +3,10 @@ package com.themoon.y1.views;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.view.View;
 
@@ -62,13 +64,21 @@ public class BatteryIconView extends View {
         float terminalWidth = w * 0.08f; // 우측 볼록 튀어나온 단자 길이
         float shellWidth = w - terminalWidth;
 
-        // 🚀 1. 상태별 색상 자동 전환 (충전 중: 초록 / 20% 이하: 빨강 / 평소: 테마 지정색)
+        // 🚀 1. 상태별 색상 자동 전환 (충전 중: 초록 / 20% 이하: 빨강 / 평소: 연두색 그라데이션)
         int currentColor = color;
         if (isCharging) currentColor = Color.parseColor("#4CAF50");
         else if (level <= 20) currentColor = Color.parseColor("#F44336");
 
         paintStroke.setColor(currentColor);
         paintFill.setColor(currentColor);
+
+        if (!isCharging && level > 20) {
+            // 🚀 평상시 배터리 색상: 위 #D0E9B7 -> 아래 #D0E9B7 그라데이션
+            paintFill.setShader(new LinearGradient(0, 0, 0, h,
+                    Color.parseColor("#D0E9B7"), Color.parseColor("#D0E9B7"), Shader.TileMode.CLAMP));
+        } else {
+            paintFill.setShader(null);
+        }
 
         // 🚀 2. 배터리 바깥 껍데기 그리기
         rectShell.set(2f, 2f, shellWidth - 2f, h - 2f);

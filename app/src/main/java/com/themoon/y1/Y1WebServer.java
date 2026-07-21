@@ -2,6 +2,7 @@ package com.themoon.y1;
 
 import android.content.Context;
 import android.net.wifi.WifiManager;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -11,6 +12,10 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Y1WebServer extends Thread {
     private ServerSocket serverSocket;
@@ -71,6 +76,32 @@ public class Y1WebServer extends Thread {
                 sb.append((char) c);
             }
             return sb.toString();
+        }
+
+        private String readBody(InputStream is, int contentLength) throws java.io.IOException {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int totalRead = 0, bytesRead;
+            while (totalRead < contentLength && (bytesRead = is.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                bos.write(buffer, 0, bytesRead);
+                totalRead += bytesRead;
+            }
+            return new String(bos.toByteArray(), "UTF-8");
+        }
+
+        private String formParam(String body, String key) throws java.io.IOException {
+            for (String pair : body.split("&")) {
+                int eq = pair.indexOf('=');
+                if (eq < 0) continue;
+                if (pair.substring(0, eq).equals(key)) {
+                    return URLDecoder.decode(pair.substring(eq + 1), "UTF-8");
+                }
+            }
+            return "";
+        }
+
+        private void writeJson(OutputStream os, String json) throws java.io.IOException {
+            os.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + json).getBytes("UTF-8"));
         }
 
         public void run() {
@@ -135,7 +166,8 @@ public class Y1WebServer extends Thread {
                             "#editorTitle{color:#B39DDB; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;}" +
                             "</style></head><body>" +
 
-                            "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager</h2>" +
+                            "<h2 style='color:#E0E0E0; font-weight:600; letter-spacing:0.5px;'>📁 Y1 File Manager " +
+                            "<a href='/lastfm' style='font-size:14px; color:#B39DDB; text-decoration:none; vertical-align:middle;'>🎧 Last.fm Settings</a></h2>" +
 
                             // 업로드/폴더생성 박스
                             "<div class='box' id='uploadBox'>" +
@@ -512,6 +544,106 @@ public class Y1WebServer extends Thread {
                         }
                         fis.close();
                     }
+                }
+                // 8️⃣ [Last.fm] 로그인 페이지 (PC 브라우저에서 편하게 아이디/비번 입력용)
+                else if (method.equals("GET") && path.equals("/lastfm")) {
+                    String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>" +
+                            "<title>Y1 Last.fm Settings</title><style>" +
+                            "body{font-family:'Roboto','Segoe UI',sans-serif; background:#1E1E24; color:#E0E0E0; padding:20px; max-width:480px; margin:0 auto;} " +
+                            "a{color:#B39DDB;} " +
+                            "input{width:100%; box-sizing:border-box; font-size:15px; padding:12px; margin:6px 0; border-radius:12px; border:none; background:#2A2A35; color:#E0E0E0; outline:none;} " +
+                            "button{width:100%; font-size:15px; padding:12px; margin:6px 0; border-radius:20px; border:none; background:#B39DDB; color:#121212; font-weight:600; cursor:pointer;} " +
+                            "button:hover{background:#9575CD;} " +
+                            "button.danger{background:#424250; color:#E57373;} " +
+                            ".box{background:#252530; padding:20px; border-radius:16px; margin:15px 0;} " +
+                            "#msg{margin-top:10px; font-weight:600;}" +
+                            "</style></head><body>" +
+                            "<h2>🎧 Last.fm Scrobbling</h2>" +
+                            "<p><a href='/'>&larr; Back to File Manager</a></p>" +
+                            "<div class='box' id='statusBox'>Loading...</div>" +
+                            "<div class='box' id='loginBox' style='display:none;'>" +
+                            "<input id='u' type='text' placeholder='Last.fm username' autocapitalize='off' autocorrect='off'>" +
+                            "<input id='p' type='password' placeholder='Last.fm password'>" +
+                            "<button onclick='doLogin()'>Log In</button>" +
+                            "<div id='msg'></div>" +
+                            "</div>" +
+                            "<script>" +
+                            "function refreshStatus() {" +
+                            "  fetch('/api/lastfm/status').then(r=>r.json()).then(s => {" +
+                            "    let box = document.getElementById('statusBox');" +
+                            "    if (s.loggedIn) {" +
+                            "      box.innerHTML = `<p>Logged in as <b>@${s.username}</b></p>` +" +
+                            "        `<button onclick='setEnabled(${!s.enabled})'>Turn Scrobbling ${s.enabled ? 'OFF' : 'ON'}</button>` +" +
+                            "        `<p>Scrobbling is currently <b>${s.enabled ? 'ON' : 'OFF'}</b></p>` +" +
+                            "        `<button class='danger' onclick='doLogout()'>Log Out</button>`;" +
+                            "      document.getElementById('loginBox').style.display = 'none';" +
+                            "    } else {" +
+                            "      box.innerHTML = '<p>Not logged in to Last.fm.</p>';" +
+                            "      document.getElementById('loginBox').style.display = 'block';" +
+                            "    }" +
+                            "  });" +
+                            "}" +
+                            "function doLogin() {" +
+                            "  let u = document.getElementById('u').value.trim();" +
+                            "  let p = document.getElementById('p').value;" +
+                            "  let msg = document.getElementById('msg');" +
+                            "  if (!u || !p) { msg.style.color='#E57373'; msg.innerText='Please fill in both fields.'; return; }" +
+                            "  msg.style.color='#B39DDB'; msg.innerText='Logging in...';" +
+                            "  fetch('/api/lastfm/login', {method:'POST', body:'username='+encodeURIComponent(u)+'&password='+encodeURIComponent(p)})" +
+                            "    .then(r=>r.json()).then(res => {" +
+                            "      if (res.success) { msg.style.color='#81C784'; msg.innerText='✅ Logged in as @' + res.message; refreshStatus(); }" +
+                            "      else { msg.style.color='#E57373'; msg.innerText='❌ ' + res.message; }" +
+                            "    });" +
+                            "}" +
+                            "function doLogout() { fetch('/api/lastfm/logout', {method:'POST'}).then(refreshStatus); }" +
+                            "function setEnabled(v) { fetch('/api/lastfm/enabled?value=' + v, {method:'POST'}).then(refreshStatus); }" +
+                            "refreshStatus();" +
+                            "</script></body></html>";
+                    os.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n" + html).getBytes("UTF-8"));
+                }
+                // [API] Last.fm 로그인 상태 조회
+                else if (method.equals("GET") && path.startsWith("/api/lastfm/status")) {
+                    com.themoon.y1.managers.LastFmScrobbler s = com.themoon.y1.managers.LastFmScrobbler.getInstance(context);
+                    String json = "{\"loggedIn\":" + s.isLoggedIn() + ",\"username\":\"" + s.getUsername().replace("\"", "\\\"") +
+                            "\",\"enabled\":" + s.isEnabled() + "}";
+                    writeJson(os, json);
+                }
+                // [API] Last.fm 로그인 (아이디/비번은 PC 브라우저에서 입력받아 이 엔드포인트로 전송됨)
+                else if (method.equals("POST") && path.startsWith("/api/lastfm/login")) {
+                    String body = readBody(is, contentLength);
+                    String username = formParam(body, "username");
+                    String password = formParam(body, "password");
+
+                    final CountDownLatch latch = new CountDownLatch(1);
+                    final AtomicBoolean success = new AtomicBoolean(false);
+                    final AtomicReference<String> message = new AtomicReference<>("Login failed");
+
+                    com.themoon.y1.managers.LastFmScrobbler.getInstance(context).login(username, password,
+                            new com.themoon.y1.managers.LastFmScrobbler.LoginCallback() {
+                                @Override
+                                public void onResult(boolean ok, String msg) {
+                                    success.set(ok);
+                                    message.set(msg);
+                                    latch.countDown();
+                                }
+                            });
+                    latch.await(15, TimeUnit.SECONDS);
+
+                    String json = "{\"success\":" + success.get() + ",\"message\":\"" +
+                            String.valueOf(message.get()).replace("\"", "\\\"") + "\"}";
+                    writeJson(os, json);
+                }
+                // [API] Last.fm 로그아웃
+                else if (method.equals("POST") && path.startsWith("/api/lastfm/logout")) {
+                    com.themoon.y1.managers.LastFmScrobbler.getInstance(context).logout();
+                    writeJson(os, "{\"ok\":true}");
+                }
+                // [API] 스크로블링 ON/OFF 토글
+                else if (method.equals("POST") && path.startsWith("/api/lastfm/enabled")) {
+                    String q = path.contains("?") ? path.split("\\?")[1] : "";
+                    boolean value = q.contains("value=true");
+                    com.themoon.y1.managers.LastFmScrobbler.getInstance(context).setEnabled(value);
+                    writeJson(os, "{\"ok\":true}");
                 }
                 os.flush();
             } catch (Exception e) {}

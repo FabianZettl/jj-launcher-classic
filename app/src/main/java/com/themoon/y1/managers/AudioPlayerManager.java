@@ -42,6 +42,11 @@ public class AudioPlayerManager {
 
     private float currentSpeed = 1.0f;
 
+    // Metadata for the track currently being prepared, handed to LastFmScrobbler
+    // once its real duration is known (synchronously for the legacy/FLAC player,
+    // or asynchronously at STATE_READY for ExoPlayer).
+    private String pendingScrobbleArtist, pendingScrobbleTitle, pendingScrobbleAlbum, pendingScrobblePath;
+
     private AudioPlayerManager() {}
 
 
@@ -166,6 +171,8 @@ public class AudioPlayerManager {
                                         int s = (duration / 1000) % 60;
                                         int m = (duration / (1000 * 60)) % 60;
                                         MainActivity.instance.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                                        com.themoon.y1.managers.LastFmScrobbler.getInstance(MainActivity.instance)
+                                                .onTrackStart(pendingScrobbleArtist, pendingScrobbleTitle, pendingScrobbleAlbum, duration, pendingScrobblePath);
                                         // 🚀 [추가!] 곡 장전이 끝나서 정확한 duration이 나왔으므로, 이 시점에 비트레이트 캡슐을 다시 업데이트합니다!
                                         if (!MainActivity.instance.currentPlaylist.isEmpty()) {
                                             MainActivity.instance.updateAudioQualityInfo(MainActivity.instance.currentPlaylist.get(MainActivity.instance.currentIndex));
@@ -224,6 +231,10 @@ public class AudioPlayerManager {
             @Override
             public void run() {
                 try {
+                    // Track just played to completion - evaluate it for scrobbling before
+                    // any repeat/next logic changes the player's position.
+                    com.themoon.y1.managers.LastFmScrobbler.getInstance(main).evaluateAndMaybeSubmit(getCurrentPosition());
+
                     int repeatMode = main.prefs.getInt("repeat_mode", 0);
                     if (repeatMode == 1) {
                         if (isUsingLegacyPlayer && legacyPlayer != null) {
@@ -231,6 +242,8 @@ public class AudioPlayerManager {
                         } else if (exoPlayer != null) {
                             exoPlayer.seekTo(0); exoPlayer.setPlayWhenReady(true);
                         }
+                        // Same track loops again - re-arm it so the next full loop can scrobble too.
+                        com.themoon.y1.managers.LastFmScrobbler.getInstance(main).rearmCurrentTrack();
                     } else if (repeatMode == 2) {
                         nextTrack();
                     } else {
@@ -339,6 +352,7 @@ public class AudioPlayerManager {
                 main.isPausedByHand = false;
                 main.tvPlayerTitle.setText(title);
                 main.tvPlayerArtist.setText(channelName); // 가수에 팟캐스트 채널명 표시
+                main.tvPlayerAlbum.setText("");
                 main.ivAlbumArt.setImageResource(R.drawable.default_album);
                 main.ivPlayerBgBlur.setImageResource(0);
                 main.updatePlayerUI();
@@ -485,6 +499,10 @@ public class AudioPlayerManager {
         final MainActivity main = MainActivity.instance;
         if (main == null || main.currentPlaylist.isEmpty()) return;
 
+        // The track that's about to be replaced gets one last chance to scrobble,
+        // using its position right before we tear down/reload the player.
+        com.themoon.y1.managers.LastFmScrobbler.getInstance(main).evaluateAndMaybeSubmit(getCurrentPosition());
+
         final File track = main.currentPlaylist.get(index);
         main.lastAlbumArtBytes = null;
         main.currentAlbumColor = ThemeManager.getListButtonFocusedBg() | 0xFF000000;
@@ -492,6 +510,7 @@ public class AudioPlayerManager {
         if (!track.exists() || track.length() < 1024) {
             main.tvPlayerTitle.setText("Corrupted File");
             main.tvPlayerArtist.setText("Skipping...");
+            main.tvPlayerAlbum.setText("");
             main.ivAlbumArt.setImageResource(R.drawable.default_album);
 
             main.consecutiveErrorCount++;
@@ -511,6 +530,7 @@ public class AudioPlayerManager {
         // 🚀 스레드(Thread)를 걷어내고 메인에서 즉시 처리하여 깜빡임/딜레이 현상을 완벽 차단!
         main.tvPlayerTitle.setText(track.getName());
         main.tvPlayerArtist.setText("Loading...");
+        main.tvPlayerAlbum.setText("");
         main.ivAlbumArt.setImageResource(R.drawable.default_album);
         main.ivPlayerBgBlur.setImageResource(0);
         main.playerProgress.setProgress(0);
@@ -525,6 +545,7 @@ public class AudioPlayerManager {
         try {
             String t = null;
             String a = null;
+            String album = null;
             main.lastAlbumArtBytes = null;
 
             // ==========================================
@@ -534,11 +555,13 @@ public class AudioPlayerManager {
                 Object[] opusTags = extractOpusMetadata(track);
                 if (opusTags[0] != null) t = (String) opusTags[0];
                 if (opusTags[1] != null) a = (String) opusTags[1];
+                if (opusTags[2] != null) album = (String) opusTags[2];
                 if (opusTags[5] != null) main.lastAlbumArtBytes = (byte[]) opusTags[5];
             } else if (isFlac) {
                 Object[] flacTags = extractFlacMetadata(track);
                 if (flacTags[0] != null) t = (String) flacTags[0];
                 if (flacTags[1] != null) a = (String) flacTags[1];
+                if (flacTags[2] != null) album = (String) flacTags[2];
                 if (flacTags[5] != null) main.lastAlbumArtBytes = (byte[]) flacTags[5];
 
                 // 🚀 [여기에 신규 장착!] FLAC 검사가 끝나고, 순정 부품으로 넘어가기 직전에 ALAC/M4A를 낚아챕니다!
@@ -546,6 +569,7 @@ public class AudioPlayerManager {
                 Object[] alacTags = extractAlacMetadata(track);
                 if (alacTags[0] != null) t = (String) alacTags[0];
                 if (alacTags[1] != null) a = (String) alacTags[1];
+                if (alacTags[2] != null) album = (String) alacTags[2];
                 if (alacTags[5] != null) main.lastAlbumArtBytes = (byte[]) alacTags[5];
 
                 // 🎯 대망의 가사 장착!
@@ -555,6 +579,13 @@ public class AudioPlayerManager {
                     // 예시: main.lyricsText = (String) alacTags[7];
                 }
 
+            } else if (ext.endsWith(".ogg")) {
+                // 🚀 [신규 추가] OGG Vorbis 재생 시 메타데이터 + 앨범 아트 추출!
+                Object[] oggTags = extractOggVorbisMetadata(track);
+                if (oggTags[0] != null) t = (String) oggTags[0];
+                if (oggTags[1] != null) a = (String) oggTags[1];
+                if (oggTags[2] != null) album = (String) oggTags[2];
+                if (oggTags[5] != null) main.lastAlbumArtBytes = (byte[]) oggTags[5];
             } else {
                 // 🚀 MP3, WAV 등 버틸 수 있는 파일만 순정 부품 사용
                 try {
@@ -565,6 +596,7 @@ public class AudioPlayerManager {
                     a = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST);
                     // 🚀 [오디오북 태그 지원] 가수 태그가 없으면 '저자(AUTHOR)' 태그를 한 번 더 긁어옵니다!
                     if (a == null || a.isEmpty()) a = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_AUTHOR);
+                    album = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM);
 
                     main.lastAlbumArtBytes = mmr.getEmbeddedPicture();
                     fisMmr.close();
@@ -611,6 +643,14 @@ public class AudioPlayerManager {
 
             if (a != null && !a.trim().isEmpty()) main.tvPlayerArtist.setText(a);
             else main.tvPlayerArtist.setText(track.getAbsolutePath().contains("/Audiobooks") || main.isAudiobookLibraryMode ? "Unknown Author" : "Unknown Artist");
+
+            main.tvPlayerAlbum.setText(album != null && !album.trim().isEmpty() ? album.trim() : "");
+
+            // 🚀 Last.fm 스크로블 후보 메타데이터 확정 (실제 duration이 나오는 시점에 onTrackStart 호출됨)
+            pendingScrobbleArtist = a;
+            pendingScrobbleTitle = (t != null && !t.trim().isEmpty()) ? t : safeFileName;
+            pendingScrobbleAlbum = album;
+            pendingScrobblePath = track.getAbsolutePath();
 
 
             // 🚀 동기식 렌더링으로 번쩍거림 없이 100% 매끄럽게 넘어갑니다.
@@ -753,6 +793,8 @@ public class AudioPlayerManager {
                 int s = (duration / 1000) % 60;
                 int m = (duration / (1000 * 60)) % 60;
                 main.tvPlayerTimeTotal.setText(String.format(Locale.US, "%02d:%02d", m, s));
+                com.themoon.y1.managers.LastFmScrobbler.getInstance(main)
+                        .onTrackStart(pendingScrobbleArtist, pendingScrobbleTitle, pendingScrobbleAlbum, duration, pendingScrobblePath);
 
             } else {
                 // MP3/WAV: 초고속 ExoPlayer
@@ -783,9 +825,8 @@ public class AudioPlayerManager {
             }
 
             main.consecutiveErrorCount = 0;
-            String currentTrackNum = String.format(Locale.US, "%02d", index + 1);
-            String totalTrackNum = String.format(Locale.US, "%02d", main.currentPlaylist.size());
-            main.tvPlayerTrackCount.setText(currentTrackNum + " / " + totalTrackNum);
+            // 🚀 iPod Classic 스타일: "01 / 14" 대신 "4 of 14" 형식으로 표시!
+            main.tvPlayerTrackCount.setText((index + 1) + " of " + main.currentPlaylist.size());
 
         } catch (Throwable e) {
             main.consecutiveErrorCount++;
@@ -796,6 +837,7 @@ public class AudioPlayerManager {
 
             main.tvPlayerTitle.setText("Load Failed ❌");
             main.tvPlayerArtist.setText(failReason);
+            main.tvPlayerAlbum.setText("");
             Toast.makeText(main, "🚨 " + failReason, Toast.LENGTH_SHORT).show();
 
             if (main.consecutiveErrorCount >= main.currentPlaylist.size()) {
@@ -869,8 +911,14 @@ public class AudioPlayerManager {
     // 🚀 [자체 제작 4.0] Ogg 껍데기 분쇄형 Opus 정밀 스캐너 (6종 메타데이터 싹쓸이)
     // =======================================================
     public Object[] extractOpusMetadata(File file) {
-        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[])
-        Object[] tags = new Object[]{null, null, null, null, null, null};
+        return extractOpusMetadata(file, true);
+    }
+
+    // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 라이브러리 대량 스캔 시
+    // 수천 개 파일의 임베디드 아트를 매번 메모리에 올렸다 버리면서 생기는 힙 단편화/OOM을 방지!
+    public Object[] extractOpusMetadata(File file, boolean includeArt) {
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
         try {
             java.io.FileInputStream fis = new java.io.FileInputStream(file);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
@@ -934,7 +982,8 @@ public class AudioPlayerManager {
                     else if (upper.startsWith("DATE=") || upper.startsWith("YEAR=")) tags[3] = comment.substring(comment.indexOf("=") + 1);
                     else if (upper.startsWith("GENRE=")) tags[4] = comment.substring(6);
                     else if (upper.startsWith("TRACKNUMBER=") || upper.startsWith("TRACKNUM=")) tags[6] = comment.substring(comment.indexOf("=") + 1);
-                    else if (upper.startsWith("METADATA_BLOCK_PICTURE=")) {
+                    else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
+                    else if (includeArt && upper.startsWith("METADATA_BLOCK_PICTURE=")) {
                         try {
                             // 🚀 공백, 줄바꿈 찌꺼기를 완벽히 지워 Base64 해독 성공률 100% 달성!
                             String base64Data = comment.substring(23).replaceAll("\\s", "");
@@ -962,12 +1011,137 @@ public class AudioPlayerManager {
         return tags;
     }
     // =======================================================
+    // 🚀 [자체 제작 4.1] OGG Vorbis 스캐너 - Opus와 동일한 Ogg 컨테이너 + Vorbis Comment
+    // 포맷을 쓰므로 파서 로직은 거의 동일합니다. 다른 점은 코멘트 헤더 매직바이트뿐!
+    // (Opus="OpusTags", Vorbis=0x03 + "vorbis")
+    // =======================================================
+    public Object[] extractOggVorbisMetadata(File file) {
+        return extractOggVorbisMetadata(file, true);
+    }
+
+    public Object[] extractOggVorbisMetadata(File file, boolean includeArt) {
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
+        try {
+            java.io.FileInputStream fis = new java.io.FileInputStream(file);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] header = new byte[27];
+            int totalRead = 0;
+
+            while (totalRead < 1500000 && fis.read(header) == 27) {
+                if (header[0] != 'O' || header[1] != 'g' || header[2] != 'g' || header[3] != 'S') break;
+
+                int pageSegments = header[26] & 0xFF;
+                byte[] segmentTable = new byte[pageSegments];
+                fis.read(segmentTable);
+
+                int pageSize = 0;
+                for (int i = 0; i < pageSegments; i++) pageSize += (segmentTable[i] & 0xFF);
+
+                byte[] pageData = new byte[pageSize];
+                int read = fis.read(pageData);
+                if (read > 0) bos.write(pageData, 0, read);
+
+                totalRead += (27 + pageSegments + pageSize);
+            }
+            fis.close();
+
+            byte[] buffer = bos.toByteArray();
+
+            // 🚨 [치명적 버그 수리] ".ogg" 확장자라고 해서 진짜 Vorbis라는 보장이 없습니다!
+            // 일부 변환 도구는 실제로는 Opus로 인코딩하고서도 확장자만 .ogg로 저장합니다.
+            // 첫 페이지 알맹이가 "OpusHead"로 시작하면 진짜 정체는 Opus이므로 그쪽 파서로 넘깁니다!
+            byte[] opusMagic = "OpusHead".getBytes("UTF-8");
+            if (buffer.length >= opusMagic.length) {
+                boolean isActuallyOpus = true;
+                for (int j = 0; j < opusMagic.length; j++) {
+                    if (buffer[j] != opusMagic[j]) { isActuallyOpus = false; break; }
+                }
+                if (isActuallyOpus) {
+                    return extractOpusMetadata(file, includeArt);
+                }
+            }
+
+            // 🚀 Vorbis 코멘트 헤더 패킷의 매직: 패킷타입(0x03) + "vorbis" (식별 헤더는 0x01이라 안 겹칩니다!)
+            byte[] magic = new byte[]{0x03, 'v', 'o', 'r', 'b', 'i', 's'};
+            int p = -1;
+            for (int i = 0; i < buffer.length - magic.length; i++) {
+                boolean match = true;
+                for (int j = 0; j < magic.length; j++) {
+                    if (buffer[i + j] != magic[j]) { match = false; break; }
+                }
+                if (match) { p = i; break; }
+            }
+
+            if (p != -1) {
+                p += magic.length;
+                int vendorLen = (buffer[p] & 0xFF) | ((buffer[p+1] & 0xFF) << 8) | ((buffer[p+2] & 0xFF) << 16) | ((buffer[p+3] & 0xFF) << 24);
+                p += 4 + vendorLen;
+
+                int commentsCount = (buffer[p] & 0xFF) | ((buffer[p+1] & 0xFF) << 8) | ((buffer[p+2] & 0xFF) << 16) | ((buffer[p+3] & 0xFF) << 24);
+                p += 4;
+
+                for (int i = 0; i < commentsCount && p < buffer.length - 4; i++) {
+                    int commentLen = (buffer[p] & 0xFF) | ((buffer[p+1] & 0xFF) << 8) | ((buffer[p+2] & 0xFF) << 16) | ((buffer[p+3] & 0xFF) << 24);
+                    p += 4;
+                    if (commentLen <= 0 || p + commentLen > buffer.length) break;
+
+                    String comment = new String(buffer, p, commentLen, "UTF-8");
+                    p += commentLen;
+                    String upper = comment.toUpperCase();
+
+                    if (upper.startsWith("TITLE=")) tags[0] = comment.substring(6);
+                    else if (upper.startsWith("ARTIST=") || upper.startsWith("AUTHOR=")) tags[1] = comment.substring(comment.indexOf("=") + 1);
+                    else if (upper.startsWith("ALBUM=")) tags[2] = comment.substring(6);
+                    else if (upper.startsWith("DATE=") || upper.startsWith("YEAR=")) tags[3] = comment.substring(comment.indexOf("=") + 1);
+                    else if (upper.startsWith("GENRE=")) tags[4] = comment.substring(6);
+                    else if (upper.startsWith("TRACKNUMBER=") || upper.startsWith("TRACKNUM=")) tags[6] = comment.substring(comment.indexOf("=") + 1);
+                    else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
+                    else if (includeArt && upper.startsWith("METADATA_BLOCK_PICTURE=")) {
+                        try {
+                            String base64Data = comment.substring(23).replaceAll("\\s", "");
+                            byte[] flacPic = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+
+                            int ptr = 4;
+                            int mimeLen = ((flacPic[ptr] & 0xFF) << 24) | ((flacPic[ptr+1] & 0xFF) << 16) | ((flacPic[ptr+2] & 0xFF) << 8) | (flacPic[ptr+3] & 0xFF);
+                            ptr += 4 + mimeLen;
+                            int descLen = ((flacPic[ptr] & 0xFF) << 24) | ((flacPic[ptr+1] & 0xFF) << 16) | ((flacPic[ptr+2] & 0xFF) << 8) | (flacPic[ptr+3] & 0xFF);
+                            ptr += 4 + descLen;
+                            ptr += 16;
+                            int picDataLen = ((flacPic[ptr] & 0xFF) << 24) | ((flacPic[ptr+1] & 0xFF) << 16) | ((flacPic[ptr+2] & 0xFF) << 8) | (flacPic[ptr+3] & 0xFF);
+                            ptr += 4;
+
+                            if (ptr + picDataLen <= flacPic.length) {
+                                byte[] img = new byte[picDataLen];
+                                System.arraycopy(flacPic, ptr, img, 0, picDataLen);
+                                tags[5] = img;
+                            }
+                        } catch (Exception e) {}
+                    }
+                    // 🚀 [레거시 지원] 구형 Vorbis 태거들은 METADATA_BLOCK_PICTURE 대신 COVERART(base64 원본 이미지)를 씁니다.
+                    else if (includeArt && upper.startsWith("COVERART=")) {
+                        try {
+                            String base64Data = comment.substring(9).replaceAll("\\s", "");
+                            tags[5] = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+                        } catch (Exception e) {}
+                    }
+                }
+            }
+        } catch (Exception e) {}
+        return tags;
+    }
+    // =======================================================
     // 🚀 [자체 제작 6.0] FLAC 6기통 만능 채굴기 (앨범, 연도, 장르, 가사 완벽 지원)
     // =======================================================
     public Object[] extractFlacMetadata(File file) {
+        return extractFlacMetadata(file, true);
+    }
+
+    // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 대량 스캔 시 OOM 방지!
+    public Object[] extractFlacMetadata(File file, boolean includeArt) {
         // 🚨 [치명적 버그 수리 완료] 바구니 크기를 6칸에서 8칸으로 늘려 앱 강제 종료(Crash)를 막습니다!
-        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트, [6]트랙번호, [7]가사
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null};
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트, [6]트랙번호, [7]가사, [8]앨범아티스트
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
         try {
             java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
             byte[] header = new byte[4];
@@ -1009,17 +1183,22 @@ public class AudioPlayerManager {
                             else if (upper.startsWith("TRACKNUMBER=") || upper.startsWith("TRACKNUM=")) tags[6] = comment.substring(comment.indexOf("=") + 1);
                                 // 🎯 [신규 장착] FLAC 내부에 LYRICS 라는 이름으로 박혀있는 가사 텍스트를 무자비하게 캐옵니다!
                             else if (upper.startsWith("LYRICS=")) tags[7] = comment.substring(7);
+                            else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
                         }
                     } catch (Exception e) {}
                 } else if (blockType == 6) { // 🚀 사진 추출
-                    int picType = raf.readInt();
-                    int mimeLen = raf.readInt(); raf.skipBytes(mimeLen);
-                    int descLen = raf.readInt(); raf.skipBytes(descLen);
-                    raf.skipBytes(16);
-                    int picDataLen = raf.readInt();
-                    byte[] picData = new byte[picDataLen];
-                    raf.readFully(picData);
-                    tags[5] = picData; // 🎯 사진 데이터
+                    if (includeArt) {
+                        int picType = raf.readInt();
+                        int mimeLen = raf.readInt(); raf.skipBytes(mimeLen);
+                        int descLen = raf.readInt(); raf.skipBytes(descLen);
+                        raf.skipBytes(16);
+                        int picDataLen = raf.readInt();
+                        byte[] picData = new byte[picDataLen];
+                        raf.readFully(picData);
+                        tags[5] = picData; // 🎯 사진 데이터
+                    } else {
+                        raf.skipBytes(length); // 🚀 대량 스캔 중에는 무거운 사진 바이트를 아예 읽지 않고 건너뜁니다!
+                    }
                 } else {
                     raf.skipBytes(length);
                 }
@@ -1033,8 +1212,13 @@ public class AudioPlayerManager {
     // 애플의 악랄한 moov -> udta -> meta -> ilst 트리 구조를 추적하여 태그와 앨범 아트를 싹쓸이합니다.
     // =======================================================
     public Object[] extractAlacMetadata(File file) {
-        // 💡 [수정] null을 8개로 맞춰야 앱이 터지지 않습니다!
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null};
+        return extractAlacMetadata(file, true);
+    }
+
+    // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 대량 스캔 시 OOM 방지!
+    public Object[] extractAlacMetadata(File file, boolean includeArt) {
+        // 💡 [수정] null을 9개로 맞춰야 앱이 터지지 않습니다! (8번째 자리: 앨범아티스트)
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
         try {
             java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
             long fileSize = raf.length();
@@ -1059,10 +1243,11 @@ public class AudioPlayerManager {
                     continue;
                 }
 
-                // 💡 조건문에 type.equals("©lyr") 추가 완료!
+                // 💡 조건문에 type.equals("©lyr"), type.equals("aART") 추가 완료!
+                // 🚀 includeArt가 false면 covr(앨범 아트) 원자는 아예 무거운 읽기 없이 건너뜁니다!
                 if (type.equals("©nam") || type.equals("©ART") || type.equals("©alb") ||
-                        type.equals("©day") || type.equals("©gen") || type.equals("covr") ||
-                        type.equals("trkn") || type.equals("©lyr")) {
+                        type.equals("©day") || type.equals("©gen") || (includeArt && type.equals("covr")) ||
+                        type.equals("trkn") || type.equals("©lyr") || type.equals("aART")) {
 
                     raf.seek(pos + 8);
                     int dataSize = raf.readInt();
@@ -1095,6 +1280,10 @@ public class AudioPlayerManager {
                             // 🚀 [신규 장착] 대망의 가사 채굴! UTF-8 텍스트로 변환하여 8번째 바구니에 담습니다!
                             else if (type.equals("©lyr")) {
                                 tags[7] = new String(data, "UTF-8");
+                            }
+                            // 🚀 [신규 장착] 앨범 아티스트(aART) 채굴!
+                            else if (type.equals("aART")) {
+                                tags[8] = new String(data, "UTF-8");
                             }
                         }
                     }
