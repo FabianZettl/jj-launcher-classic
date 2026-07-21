@@ -48,14 +48,13 @@ Everything below was added/changed on top of JJ Launcher; anything not listed he
 ## Installation
 
 1. **Prerequisite:** your Innioasis Y1 must already be running **JJ Launcher**, installed via the [Innioasis Updater](https://www.innioasis.com/pages/download). This fork replaces the JJ Launcher app itself — it does not replace the device firmware.
-2. Enable USB debugging on the device and connect it to your PC (see JJ Launcher's own instructions if you haven't done this before).
-3. Download the latest APK from this repo's [Releases](../../releases) page.
-4. **Remove the existing JJ Launcher app first** (see [Replacing the stock JJ Launcher app](#replacing-the-stock-jj-launcher-app) below — you can't just `adb install -r` over it).
-5. Install the fork:
+2. Connect the device to your PC and download the latest APK from this repo's [Releases](../../releases) page.
+3. **Remove the existing JJ Launcher app first** (see [Replacing the stock JJ Launcher app](#replacing-the-stock-jj-launcher-app) below — you can't just `adb install -r` over it).
+4. Install the fork:
    ```bash
    adb install JJLauncherClassic-<version>.apk
    ```
-6. (Optional, only if Bluetooth pairing ever asks for a permission you can't grant from the UI):
+5. (Optional, only if Bluetooth pairing ever asks for a permission you can't grant from the UI):
    ```bash
    adb shell pm grant com.themoon.y1 android.permission.WRITE_SECURE_SETTINGS
    ```
