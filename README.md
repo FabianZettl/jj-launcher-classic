@@ -44,6 +44,7 @@ Everything below was added/changed on top of JJ Launcher; anything not listed he
 - **Music Quiz (first version)** — a from-scratch recreation of the classic iPod Music Quiz game using your own library: 10-second clips, 5-answer rounds, lives, and a score, styled in the original's 2000s "Fruitiger Aero" glossy look
 - **OGG Vorbis support** — playback and library scanning for `.ogg` files, including automatic detection of files that are actually Opus-encoded but saved with an `.ogg` extension (common with some ripping tools)
 - **Now Playing depth** — center-click cycles Progress → Seek → Shuffle & Repeat → Rating sub-menus exactly like a real iPod Classic, plus star ratings, an On-The-Go playlist, and a matching Now Playing hold-menu (Add to On-The-Go / Browse Album / Browse Artist)
+- **Fast-scroll letter jump** — spin the wheel quickly through Artists/Albums/Songs/Genres/Composers/Search to jump straight to the next letter, with an on-screen letter overlay, like a real click wheel
 - Assorted library/UI fixes made along the way: duplicate song de-duplication, folder-cover-art fallback for albums without embedded art, album-artist grouping, forced 1:1 album art cropping, and OOM hardening for the device's limited RAM during large library scans
 
 ## Installation

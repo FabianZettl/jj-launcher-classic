@@ -12,6 +12,7 @@ Focused on getting closer to the real iPod Classic experience — especially a p
 - **On-The-Go playlist**: the classic always-available instant playlist. Reachable as a one-tap "Add to On-The-Go" action from the Now Playing hold-menu, or as a pinned entry in the full Add to Playlist dialog.
 - **Now Playing hold-menu**: long-press Center on Now Playing for Add to On-The-Go, Browse Album, Browse Artist, and Cancel — matching the real iPod's menu, plus a Toggle Visualizer entry for this fork's bonus spectrum/lyrics view.
 - **Composers** grouping in the Music menu, alongside the existing Artists/Albums/Genres/Years grouping.
+- **Fast-scroll letter jump**: spin the wheel quickly through an alphabetized list (Artists/Albums/Songs/Genres/Composers/Search) to jump straight to the next first-letter group, with an on-screen letter overlay while jumping — tuned so it triggers reliably without being overly twitchy on a quick spin.
 - Status bar now shows the current screen's name (Music/Now Playing/Settings/etc.) instead of a clock, matching the real iPod's title bar.
 
 ### Changed
