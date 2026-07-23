@@ -297,7 +297,25 @@ public class ThemeManager {
     public static void setThemeIndex(int index) { if (index >= 0 && index < availableThemes.size()) currentThemeIndex = index; else currentThemeIndex = 0; }
     public static int getCurrentThemeIndex() { return currentThemeIndex; }
     public static ThemeData getCurrentTheme() { return availableThemes.get(currentThemeIndex); }
-    public static android.graphics.Typeface getCustomFont() { if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT; return availableThemes.get(currentThemeIndex).customFont; }
+    public static android.graphics.Typeface getCustomFont() {
+        if (availableThemes.isEmpty()) return android.graphics.Typeface.DEFAULT;
+        return availableThemes.get(currentThemeIndex).customFont;
+    }
+
+    // 🚀 [폰트 통일 버그 수정] 구형 안드로이드에서 setTypeface(font, Typeface.BOLD)를 그때그때 호출하면
+    // 커스텀 폰트가 씹히고 시스템 기본 굵은 글씨체로 되돌아가는 경우가 있어, 볼드 버전을 한 곳에서
+    // 미리 만들어두고 항상 이 인스턴스를 재사용합니다 (테마가 바뀔 때만 다시 계산).
+    private static android.graphics.Typeface cachedBoldFont;
+    private static android.graphics.Typeface cachedBoldFontSource;
+
+    public static android.graphics.Typeface getCustomFontBold() {
+        android.graphics.Typeface base = getCustomFont();
+        if (cachedBoldFont == null || cachedBoldFontSource != base) {
+            cachedBoldFontSource = base;
+            cachedBoldFont = android.graphics.Typeface.create(base, android.graphics.Typeface.BOLD);
+        }
+        return cachedBoldFont;
+    }
     public static int getTextColorPrimary() { return getCurrentTheme().textPrimary; }
     public static int getTextColorSecondary() { return getCurrentTheme().textSecondary; }
     public static int getOverlayBackgroundColor() { return getCurrentTheme().bgOverlay; }

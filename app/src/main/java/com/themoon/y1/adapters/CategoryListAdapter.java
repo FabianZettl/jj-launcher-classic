@@ -118,8 +118,9 @@ public class CategoryListAdapter extends BaseAdapter {
             textStack.setLayoutParams(textLp);
 
             tvTitle = new TextView(MainActivity.instance);
-            tvTitle.setTextSize(18f);
-            tvTitle.setTypeface(ThemeManager.getCustomFont(), Typeface.BOLD);
+            // 🚀 [Main Menu와 폰트 크기 통일] SP 대신 PX 단위로 강제 고정 - 모든 메뉴 화면에서 100% 동일한 렌더링 크기 보장!
+            tvTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 18f * d);
+            tvTitle.setTypeface(ThemeManager.getCustomFontBold());
             tvTitle.setSingleLine(true);
             tvTitle.setEllipsize(android.text.TextUtils.TruncateAt.MARQUEE);
             tvTitle.setMarqueeRepeatLimit(-1);
@@ -161,7 +162,7 @@ public class CategoryListAdapter extends BaseAdapter {
                 @Override
                 public void onFocusChange(View v, boolean hasFocus) {
                     if (hasFocus) {
-                        row.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
+                        row.setBackground(MainActivity.instance.createFocusedButtonBackground());
                         tvTitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                         tvSubtitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                         tvTitle.setSelected(true);
@@ -305,7 +306,7 @@ public class CategoryListAdapter extends BaseAdapter {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
-                    row.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
+                    row.setBackground(MainActivity.instance.createFocusedButtonBackground());
                     tvTitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     tvSubtitle.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     MainActivity.instance.showFastScrollLetter(name);
@@ -358,7 +359,7 @@ public class CategoryListAdapter extends BaseAdapter {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
-                    btn.setBackground(MainActivity.instance.createButtonBackground(ThemeManager.getListButtonFocusedBg()));
+                    btn.setBackground(MainActivity.instance.createFocusedButtonBackground());
                     btn.setTextColor(ThemeManager.getListButtonFocusedTextColor());
                     MainActivity.instance.showFastScrollLetter(name);
                     btn.setSelected(true);

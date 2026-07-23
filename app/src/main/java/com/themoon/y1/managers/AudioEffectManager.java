@@ -37,6 +37,11 @@ public class AudioEffectManager {
                 if (main.virtualizer != null) main.virtualizer.release();
                 main.virtualizer = new android.media.audiofx.Virtualizer(0, sessionId); main.virtualizer.setEnabled(true);
             }
+            if (android.os.Build.VERSION.SDK_INT >= 19
+                    && (main.loudnessEnhancer == null || main.currentAudioSessionId != sessionId)) {
+                if (main.loudnessEnhancer != null) main.loudnessEnhancer.release();
+                main.loudnessEnhancer = new android.media.audiofx.LoudnessEnhancer(sessionId);
+            }
             main.currentAudioSessionId = sessionId;
         } catch (Exception e) {}
     }
@@ -58,6 +63,22 @@ public class AudioEffectManager {
             short virtStrength = (short) (main.currentVirtualizerStep * 333);
             if (main.currentVirtualizerStep == 3) virtStrength = 1000;
             if (main.virtualizer.getStrengthSupported()) main.virtualizer.setStrength(virtStrength);
+        } catch (Exception e) {}
+
+        applySoundCheck();
+    }
+
+    // 🎧 [iPod 스타일] Sound Check - 켜져 있으면 살짝 음압을 보정해 곡마다 체감 음량 차이를 줄여줍니다
+    public void applySoundCheck() {
+        MainActivity main = MainActivity.instance;
+        if (main == null || main.loudnessEnhancer == null) return;
+        try {
+            if (main.isSoundCheckEnabled) {
+                main.loudnessEnhancer.setTargetGain(500); // 500 mB = 5dB 보정
+                main.loudnessEnhancer.setEnabled(true);
+            } else {
+                main.loudnessEnhancer.setEnabled(false);
+            }
         } catch (Exception e) {}
     }
 

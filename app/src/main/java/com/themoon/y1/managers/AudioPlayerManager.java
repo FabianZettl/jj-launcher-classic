@@ -917,8 +917,8 @@ public class AudioPlayerManager {
     // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 라이브러리 대량 스캔 시
     // 수천 개 파일의 임베디드 아트를 매번 메모리에 올렸다 버리면서 생기는 힙 단편화/OOM을 방지!
     public Object[] extractOpusMetadata(File file, boolean includeArt) {
-        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트, [9]작곡가
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null, null};
         try {
             java.io.FileInputStream fis = new java.io.FileInputStream(file);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
@@ -983,6 +983,7 @@ public class AudioPlayerManager {
                     else if (upper.startsWith("GENRE=")) tags[4] = comment.substring(6);
                     else if (upper.startsWith("TRACKNUMBER=") || upper.startsWith("TRACKNUM=")) tags[6] = comment.substring(comment.indexOf("=") + 1);
                     else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
+                    else if (upper.startsWith("COMPOSER=")) tags[9] = comment.substring(comment.indexOf("=") + 1);
                     else if (includeArt && upper.startsWith("METADATA_BLOCK_PICTURE=")) {
                         try {
                             // 🚀 공백, 줄바꿈 찌꺼기를 완벽히 지워 Base64 해독 성공률 100% 달성!
@@ -1020,8 +1021,8 @@ public class AudioPlayerManager {
     }
 
     public Object[] extractOggVorbisMetadata(File file, boolean includeArt) {
-        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트(byte[]), [6]트랙번호, [7]가사(미사용), [8]앨범아티스트, [9]작곡가
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null, null};
         try {
             java.io.FileInputStream fis = new java.io.FileInputStream(file);
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
@@ -1097,6 +1098,7 @@ public class AudioPlayerManager {
                     else if (upper.startsWith("GENRE=")) tags[4] = comment.substring(6);
                     else if (upper.startsWith("TRACKNUMBER=") || upper.startsWith("TRACKNUM=")) tags[6] = comment.substring(comment.indexOf("=") + 1);
                     else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
+                    else if (upper.startsWith("COMPOSER=")) tags[9] = comment.substring(comment.indexOf("=") + 1);
                     else if (includeArt && upper.startsWith("METADATA_BLOCK_PICTURE=")) {
                         try {
                             String base64Data = comment.substring(23).replaceAll("\\s", "");
@@ -1140,8 +1142,8 @@ public class AudioPlayerManager {
     // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 대량 스캔 시 OOM 방지!
     public Object[] extractFlacMetadata(File file, boolean includeArt) {
         // 🚨 [치명적 버그 수리 완료] 바구니 크기를 6칸에서 8칸으로 늘려 앱 강제 종료(Crash)를 막습니다!
-        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트, [6]트랙번호, [7]가사, [8]앨범아티스트
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
+        // [0]제목, [1]가수, [2]앨범, [3]연도, [4]장르, [5]앨범아트, [6]트랙번호, [7]가사, [8]앨범아티스트, [9]작곡가
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null, null};
         try {
             java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
             byte[] header = new byte[4];
@@ -1184,6 +1186,7 @@ public class AudioPlayerManager {
                                 // 🎯 [신규 장착] FLAC 내부에 LYRICS 라는 이름으로 박혀있는 가사 텍스트를 무자비하게 캐옵니다!
                             else if (upper.startsWith("LYRICS=")) tags[7] = comment.substring(7);
                             else if (upper.startsWith("ALBUMARTIST=") || upper.startsWith("ALBUM_ARTIST=")) tags[8] = comment.substring(comment.indexOf("=") + 1);
+                            else if (upper.startsWith("COMPOSER=")) tags[9] = comment.substring(comment.indexOf("=") + 1);
                         }
                     } catch (Exception e) {}
                 } else if (blockType == 6) { // 🚀 사진 추출
@@ -1217,8 +1220,8 @@ public class AudioPlayerManager {
 
     // 🚀 [신규 추가] includeArt=false면 앨범 아트 디코딩을 건너뜁니다 - 대량 스캔 시 OOM 방지!
     public Object[] extractAlacMetadata(File file, boolean includeArt) {
-        // 💡 [수정] null을 9개로 맞춰야 앱이 터지지 않습니다! (8번째 자리: 앨범아티스트)
-        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null};
+        // 💡 [수정] null을 10개로 맞춰야 앱이 터지지 않습니다! (8번째 자리: 앨범아티스트, 9번째: 작곡가)
+        Object[] tags = new Object[]{null, null, null, null, null, null, null, null, null, null};
         try {
             java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
             long fileSize = raf.length();
@@ -1247,7 +1250,7 @@ public class AudioPlayerManager {
                 // 🚀 includeArt가 false면 covr(앨범 아트) 원자는 아예 무거운 읽기 없이 건너뜁니다!
                 if (type.equals("©nam") || type.equals("©ART") || type.equals("©alb") ||
                         type.equals("©day") || type.equals("©gen") || (includeArt && type.equals("covr")) ||
-                        type.equals("trkn") || type.equals("©lyr") || type.equals("aART")) {
+                        type.equals("trkn") || type.equals("©lyr") || type.equals("aART") || type.equals("©wrt")) {
 
                     raf.seek(pos + 8);
                     int dataSize = raf.readInt();
@@ -1284,6 +1287,10 @@ public class AudioPlayerManager {
                             // 🚀 [신규 장착] 앨범 아티스트(aART) 채굴!
                             else if (type.equals("aART")) {
                                 tags[8] = new String(data, "UTF-8");
+                            }
+                            // 🚀 [iPod 스타일] 작곡가(©wrt) 채굴!
+                            else if (type.equals("©wrt")) {
+                                tags[9] = new String(data, "UTF-8");
                             }
                         }
                     }

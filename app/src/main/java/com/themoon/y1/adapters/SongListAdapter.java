@@ -102,6 +102,17 @@ public class SongListAdapter extends BaseAdapter {
                 }
                 displayTitle = datePrefix + song.title;
             }
+            // 🔍 3. [iPod 스타일] 검색 결과 모드일 때 - 무엇 때문에 매칭되었는지 작은 힌트를 붙여줍니다
+            else if ("SEARCH".equals(MainActivity.instance.virtualQueryType)) {
+                String q = MainActivity.instance.virtualQueryValue == null ? ""
+                        : MainActivity.instance.virtualQueryValue.toLowerCase();
+                boolean titleMatch = song.title != null && song.title.toLowerCase().contains(q);
+                if (!titleMatch && song.artist != null && song.artist.toLowerCase().contains(q)) {
+                    displayTitle = song.title + "  —  " + song.artist;
+                } else if (!titleMatch && song.album != null && song.album.toLowerCase().contains(q)) {
+                    displayTitle = song.title + "  —  " + song.album;
+                }
+            }
         }
 
         // 🚀 UI 그리기 (계산된 텍스트와 색상을 여기서 한 번에 입힙니다)

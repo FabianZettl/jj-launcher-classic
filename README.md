@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/Device-Innioasis%20Y1%20only-blue?style=flat-square" alt="Device">
   <img src="https://img.shields.io/badge/Status-Beta-Orange?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square" alt="Version">
 </p>
 
 A fork of [ismileblue/y1_launcher](https://github.com/ismileblue/y1_launcher) (JJ Launcher / MO-ON Launcher) for the **Innioasis Y1**. The goal of this fork is to turn JJ Launcher into as close to the original **iPod Classic experience** as possible — a bundled iPod-style theme, Last.fm scrobbling, a Music Quiz mini-game, and broader format support — while keeping everything JJ Launcher already does well.
@@ -43,6 +43,7 @@ Everything below was added/changed on top of JJ Launcher; anything not listed he
   - Live scrobbling against the real Last.fm API (`auth.getMobileSession` / `track.updateNowPlaying` / `track.scrobble`), with a browser-based login flow (via the device's Wi-Fi web server) since typing a username/password with a click-wheel is painful
 - **Music Quiz (first version)** — a from-scratch recreation of the classic iPod Music Quiz game using your own library: 10-second clips, 5-answer rounds, lives, and a score, styled in the original's 2000s "Fruitiger Aero" glossy look
 - **OGG Vorbis support** — playback and library scanning for `.ogg` files, including automatic detection of files that are actually Opus-encoded but saved with an `.ogg` extension (common with some ripping tools)
+- **Now Playing depth** — center-click cycles Progress → Seek → Shuffle & Repeat → Rating sub-menus exactly like a real iPod Classic, plus star ratings, an On-The-Go playlist, and a matching Now Playing hold-menu (Add to On-The-Go / Browse Album / Browse Artist)
 - Assorted library/UI fixes made along the way: duplicate song de-duplication, folder-cover-art fallback for albums without embedded art, album-artist grouping, forced 1:1 album art cropping, and OOM hardening for the device's limited RAM during large library scans
 
 ## Installation

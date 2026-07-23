@@ -2,6 +2,25 @@
 
 All notable changes to JJ Launcher Classic Version are documented here. This fork is based on JJ Launcher `0.11`; this changelog covers only what changed in this fork on top of that base.
 
+## [1.1.0] - 2026-07-23
+
+Focused on getting closer to the real iPod Classic experience — especially a proper depth to the Now Playing screen, plus a cleanup pass on the Main Menu and some visual consistency fixes.
+
+### Added
+- **Now Playing sub-menus**: a center-click on the Now Playing screen now cycles through four states, exactly like a real iPod Classic — Progress bar → Seek (scrub bar with a diamond thumb, wheel jumps the track ±5s) → Shuffle & Repeat (quick toggle, wheel cycles each) → Rating (wheel sets 1-5 stars) → back to Progress. The wheel reverts to volume control outside of these states, same as on a real device.
+- **Star ratings**: rate any track 1-5 stars from the Now Playing Rating state above; shown as ★★★☆☆ under the track counter.
+- **On-The-Go playlist**: the classic always-available instant playlist. Reachable as a one-tap "Add to On-The-Go" action from the Now Playing hold-menu, or as a pinned entry in the full Add to Playlist dialog.
+- **Now Playing hold-menu**: long-press Center on Now Playing for Add to On-The-Go, Browse Album, Browse Artist, and Cancel — matching the real iPod's menu, plus a Toggle Visualizer entry for this fork's bonus spectrum/lyrics view.
+- **Composers** grouping in the Music menu, alongside the existing Artists/Albums/Genres/Years grouping.
+- Status bar now shows the current screen's name (Music/Now Playing/Settings/etc.) instead of a clock, matching the real iPod's title bar.
+
+### Changed
+- **Main Menu cleanup**: Cover Flow, Audiobooks, Folders, Years, Recently Added, and My Favorites have moved out of the Main Menu and into the Music menu where they belong on a real iPod. Main Menu is back down to Now Playing, Music, Music Quiz, Podcasts, Bluetooth, Wi-Fi, Settings, and Web Server.
+- The Main Menu's split-view album cover now genuinely fills the entire remaining screen edge-to-edge (computed from the real screen size) instead of a fixed-size box, so it bleeds above the status bar the same way the Music menu's cover panel already did.
+
+### Fixed
+- Menu text size was inconsistent between screens: Music-menu-style rows (Artists/Albums/Composers/Songs/Settings) were sized in `sp` while the Main Menu's buttons were sized in raw pixels — same nominal number, different unit, so they never quite matched. Everything now renders at the exact same size.
+
 ## [1.0.0] - 2026-07-21
 
 First public release.
