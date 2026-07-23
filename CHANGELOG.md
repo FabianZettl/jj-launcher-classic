@@ -2,6 +2,14 @@
 
 All notable changes to JJ Launcher Classic Version are documented here. This fork is based on JJ Launcher `0.11`; this changelog covers only what changed in this fork on top of that base.
 
+## [1.1.1] - 2026-07-23
+
+Two bug fixes reported by u/withclay on Reddit.
+
+### Fixed
+- Wireless PC Upload (web server) status text was hardcoded white, making it invisible against the iPod Classic theme's white background once the server was started. Also fixed the same hardcoded-near-white issue on the Bluetooth/Wi-Fi/Brightness/Storage/Settings screen titles, which had the identical problem.
+- The wheel stayed active while the device was locked (screen off) — turning it could still change the volume. The guard against this already existed in code, but it lived in a method that never actually runs on this device (`dispatchKeyEvent` intercepts and consumes these keys before it would ever be reached); moved the guard to where it's actually effective.
+
 ## [1.1.0] - 2026-07-23
 
 Focused on getting closer to the real iPod Classic experience — especially a proper depth to the Now Playing screen, plus a cleanup pass on the Main Menu and some visual consistency fixes.

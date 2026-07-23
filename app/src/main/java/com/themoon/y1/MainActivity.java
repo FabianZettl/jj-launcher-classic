@@ -1757,18 +1757,33 @@ public class MainActivity extends Activity {
         tvServerIp = findViewById(R.id.tv_server_ip);
         btnServerToggle = findViewById(R.id.btn_server_toggle);
         try {
+            // 🚀 [테마 대응] 제목들도 하드코딩된 거의-흰색 대신 테마 기본 텍스트 색상을 씁니다 -
+            // 밝은 테마(예: iPod Classic)의 흰 배경에서 안 보이던 문제 방지!
+            int settingsTitleColor = ThemeManager.getTextColorPrimary();
             // 1. Settings (세팅 메뉴)
-            ((TextView) ((ViewGroup) layoutSettingsMode).getChildAt(0)).setText(t("Settings"));
+            TextView tvSettingsTitle = (TextView) ((ViewGroup) layoutSettingsMode).getChildAt(0);
+            tvSettingsTitle.setText(t("Settings"));
+            tvSettingsTitle.setTextColor(settingsTitleColor);
             // 2. Bluetooth (블루투스)
-            ((TextView) ((ViewGroup) layoutBluetoothMode).getChildAt(0)).setText(t("Bluetooth"));
+            TextView tvBtTitle = (TextView) ((ViewGroup) layoutBluetoothMode).getChildAt(0);
+            tvBtTitle.setText(t("Bluetooth"));
+            tvBtTitle.setTextColor(settingsTitleColor);
             // 3. Wi-Fi (와이파이)
-            ((TextView) ((ViewGroup) layoutWifiMode).getChildAt(0)).setText(t("Wi-Fi"));
+            TextView tvWifiTitle = (TextView) ((ViewGroup) layoutWifiMode).getChildAt(0);
+            tvWifiTitle.setText(t("Wi-Fi"));
+            tvWifiTitle.setTextColor(settingsTitleColor);
             // 4. Brightness (화면 밝기)
-            ((TextView) ((ViewGroup) layoutBrightnessMode).getChildAt(0)).setText(t("Display Brightness"));
+            TextView tvBrightTitle = (TextView) ((ViewGroup) layoutBrightnessMode).getChildAt(0);
+            tvBrightTitle.setText(t("Display Brightness"));
+            tvBrightTitle.setTextColor(settingsTitleColor);
             // 5. Storage (저장소)
-            ((TextView) ((ViewGroup) layoutStorageMode).getChildAt(0)).setText(t("Storage"));
+            TextView tvStorageTitle = (TextView) ((ViewGroup) layoutStorageMode).getChildAt(0);
+            tvStorageTitle.setText(t("Storage"));
+            tvStorageTitle.setTextColor(settingsTitleColor);
             // 6. Web Server (웹 서버)
-            ((TextView) ((ViewGroup) layoutWebServerMode).getChildAt(0)).setText(t("Wireless PC Upload"));
+            TextView tvWebTitle = (TextView) ((ViewGroup) layoutWebServerMode).getChildAt(0);
+            tvWebTitle.setText(t("Wireless PC Upload"));
+            tvWebTitle.setTextColor(settingsTitleColor);
         } catch (Exception e) {
             // 레이아웃 구조가 달라도 앱이 터지지 않도록 보호
         }
@@ -3533,22 +3548,23 @@ public class MainActivity extends Activity {
 
     private void updateWebServerUI() {
         if (isServerRunning) {
-            // 💡 애플 스타일: 이모지를 빼고 깔끔한 흰색으로!
+            // 🚀 [테마 대응] 하드코딩된 흰색 대신 테마 기본 텍스트 색상 사용 - 밝은 테마(예: iPod Classic)에서
+            // 흰 배경 위에 흰 글씨가 되어 안 보이던 버그 수정!
             tvServerStatus.setText(t("SERVER RUNNING"));
-            tvServerStatus.setTextColor(0xFFFFFFFF);
+            tvServerStatus.setTextColor(ThemeManager.getTextColorPrimary());
             tvServerIp.setText("http://" + webServer.getLocalIpAddress() + ":8080");
-            tvServerIp.setTextColor(0xFFFFFFFF);
+            tvServerIp.setTextColor(ThemeManager.getTextColorPrimary());
             btnServerToggle.setText(t("STOP SERVER"));
 
             // 🚀 [상태바 동기화] 서버가 켜지면 상단에 서버 아이콘 표시!
             if (ivStatusServer != null)
                 ivStatusServer.setVisibility(View.VISIBLE);
         } else {
-            // 💡 애플 스타일: 튀지 않는 은은한 회색으로!
+            // 🚀 [테마 대응] 여기도 동일하게 테마 보조 텍스트 색상 사용
             tvServerStatus.setText(t("SERVER STOPPED"));
-            tvServerStatus.setTextColor(0xFF888888);
+            tvServerStatus.setTextColor(ThemeManager.getTextColorSecondary());
             tvServerIp.setText("http://---.---.---.---:8080");
-            tvServerIp.setTextColor(0xFF888888);
+            tvServerIp.setTextColor(ThemeManager.getTextColorSecondary());
             btnServerToggle.setText(t("START SERVER"));
 
             // 🚀 [상태바 동기화] 서버가 꺼지면 상단 서버 아이콘 즉시 숨김!
@@ -11690,6 +11706,91 @@ public class MainActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent event) {
         int keyCode = event.getKeyCode();
         int action = event.getAction();
+
+        // =======================================================
+        // 🔒 [화면 잠금 방어막] 화면이 꺼져있을 때는 휠/버튼이 그대로 통과되어 볼륨 조절/탐색 등이
+        // 몰래 작동하지 않도록 여기서 전부 막습니다. (이 체크가 예전에는 절대 실행되지 않는
+        // onKeyDown()에 있었던 게 진짜 버그의 원인이었습니다 - dispatchKeyEvent가 이미 이 키들을
+        // 먼저 소비해버려서 onKeyDown까지 내려가지 않았습니다.)
+        // =======================================================
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        boolean isScreenOnForLock = true;
+        try {
+            if (Build.VERSION.SDK_INT >= 20)
+                isScreenOnForLock = pm.isInteractive();
+            else
+                isScreenOnForLock = pm.isScreenOn();
+        } catch (Exception e) {
+        }
+
+        boolean isWakingUp = !isScreenOnForLock || ((event.getFlags() & KeyEvent.FLAG_WOKE_HERE) != 0)
+                || (System.currentTimeMillis() - lastScreenOnTime < 500);
+
+        if (isWakingUp) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+                if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    event.startTracking();
+                }
+                return true;
+            }
+
+            // 🚀 [스크린 오프 컨트롤 라디오 인터셉터]
+            if (isScreenOffControlEnabled && activePlayer == 1 && action == KeyEvent.ACTION_DOWN) {
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                    tuneToNextSavedRadioChannel(true);
+                    clickFeedback();
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                    tuneToNextSavedRadioChannel(false);
+                    clickFeedback();
+                    return true;
+                }
+            }
+
+            if (isScreenOffControlEnabled && currentScreenState == STATE_PLAYER && action == KeyEvent.ACTION_DOWN) {
+                if (keyCode == 21 || keyCode == 22) {
+                    if (System.currentTimeMillis() - lastTrackChangeTime > 300) {
+                        handleNowPlayingWheelInput(keyCode == 22);
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == 88) {
+                    if (event.getRepeatCount() == 0) {
+                        event.startTracking();
+                        isSeekPerformed = false;
+                    } else {
+                        long now = System.currentTimeMillis();
+                        if (now - lastSeekTime > 300) {
+                            isSeekPerformed = true;
+                            lastSeekTime = now;
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(-10000);
+                            clickFeedback();
+                        }
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == 87) {
+                    if (event.getRepeatCount() == 0) {
+                        event.startTracking();
+                        isSeekPerformed = false;
+                    } else {
+                        long now = System.currentTimeMillis();
+                        if (now - lastSeekTime > 300) {
+                            isSeekPerformed = true;
+                            lastSeekTime = now;
+                            com.themoon.y1.managers.AudioPlayerManager.getInstance().seekRelative(10000);
+                            clickFeedback();
+                        }
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == 85 || keyCode == 86) {
+                    return true;
+                }
+            }
+            return true;
+        }
 
         // =======================================================
         // 🎧 1. 하단 시작/정지 버튼 (Play/Pause) 제어 구역

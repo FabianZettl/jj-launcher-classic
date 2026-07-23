@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
   <img src="https://img.shields.io/badge/Device-Innioasis%20Y1%20only-blue?style=flat-square" alt="Device">
   <img src="https://img.shields.io/badge/Status-Beta-Orange?style=flat-square" alt="Status">
-  <img src="https://img.shields.io/badge/Version-1.1.0-informational?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.1.1-informational?style=flat-square" alt="Version">
 </p>
 
 A fork of [ismileblue/y1_launcher](https://github.com/ismileblue/y1_launcher) (JJ Launcher / MO-ON Launcher) for the **Innioasis Y1**. The goal of this fork is to turn JJ Launcher into as close to the original **iPod Classic experience** as possible — a bundled iPod-style theme, Last.fm scrobbling, a Music Quiz mini-game, and broader format support — while keeping everything JJ Launcher already does well.
